@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { login, logout } from '../api';
 
 // ── API CONFIG ────────────────────────────────────────────────────────────────
-const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1';
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
 
 // ── API: fetch live threat alerts ─────────────────────────────────────────────
@@ -547,18 +548,23 @@ function InstitutionalLogin({ onLogin }) {
       return;
     }
     setIsLoading(true);
-    setTimeout(() => {
-      if (email.includes('@') && password.length > 0) {
-        if (rememberMe) {
-          localStorage.setItem('nigersec_institution', JSON.stringify({
-            email,
-            name: email.split('@')[0],
-            tier: 'MID_BANK'
-          }));
-        }
-        onLogin({ email, name: email.split('@')[0] });
-      } else {
-        setError('Invalid credentials. Please try again.');
+
+    try {
+      const authResponse = await login(email, password);
+      const userData = {
+        userId: authResponse.userId,
+        email: authResponse.email,
+        name: authResponse.email.split('@')[0],
+        role: authResponse.role,
+        accessToken: authResponse.accessToken,
+        refreshToken: authResponse.refreshToken,
+      };
+
+      localStorage.setItem('token', authResponse.accessToken);
+      localStorage.setItem('refresh_token', authResponse.refreshToken);
+
+      if (rememberMe) {
+        localStorage.setItem('nigersec_institution', JSON.stringify(userData));
       }
 
       onLogin(userData);
@@ -626,10 +632,6 @@ function InstitutionalLogin({ onLogin }) {
 function SevPill({ s }) {
   return <span className={`sev sev-${s}`}>{s}</span>;
 }
- else:
-            out.append(text[i])
-            i += 1
-    path.write_text(''.join(out), encoding='utf-8')
 
 function KPI({ label, value, delta, up, color }) {
   return (
@@ -948,7 +950,19 @@ export default function App() {
   }, []);
 
   const handleLogin = (userData) => { setUser(userData); setIsAuthenticated(true); };
-  const handleLogout = () => { localStorage.removeItem('nigersec_institution'); setUser(null); setIsAuthenticated(false); };
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch (err) {
+      console.warn('Logout request failed:', err);
+    }
+
+    localStorage.removeItem('nigersec_institution');
+    localStorage.removeItem('token');
+    localStorage.removeItem('refresh_token');
+    setUser(null);
+    setIsAuthenticated(false);
+  };
 
   if (!isAuthenticated) return <InstitutionalLogin onLogin={handleLogin} />;
   return <InstitutionDashboard user={user} onLogout={handleLogout} />;
