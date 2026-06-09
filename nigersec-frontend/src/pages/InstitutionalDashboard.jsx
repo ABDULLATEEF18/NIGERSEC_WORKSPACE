@@ -1,6 +1,71 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-// ── MOCK DATA (from your existing dashboard) ─────────────────────────────────
+// ── API CONFIG ────────────────────────────────────────────────────────────────
+const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
+
+// ── API: fetch live threat alerts ─────────────────────────────────────────────
+async function apiFetchAlerts(orgId) {
+  const res = await fetch(`${API_URL}/v1/institutional/alerts?org_id=${encodeURIComponent(orgId || 'demo')}`);
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+// ── API: fetch live KPI summary ───────────────────────────────────────────────
+async function apiFetchKPIs(orgId) {
+  const res = await fetch(`${API_URL}/v1/institutional/kpis?org_id=${encodeURIComponent(orgId || 'demo')}`);
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+// ── API: fetch live hotspots ──────────────────────────────────────────────────
+async function apiFetchHotspots() {
+  const res = await fetch(`${API_URL}/v1/institutional/hotspots`);
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+// ── API: fetch BVN batch exposure ─────────────────────────────────────────────
+async function apiFetchBVNBatches(orgId) {
+  const res = await fetch(`${API_URL}/v1/institutional/bvn-exposure?org_id=${encodeURIComponent(orgId || 'demo')}`);
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+// ── API: submit anonymous peer report ────────────────────────────────────────
+async function apiSubmitReport(payload) {
+  const res = await fetch(`${API_URL}/v1/institutional/report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+// ── API: Gemini AI threat explainer ──────────────────────────────────────────
+async function apiExplainThreat(alert) {
+  if (!GEMINI_API_KEY) {
+    return 'Add VITE_GEMINI_API_KEY to your .env file to enable AI threat analysis. Get it free at aistudio.google.com.';
+  }
+  const prompt = `You are a Nigerian financial cybersecurity analyst. A compliance officer is looking at this threat alert: "${alert.title}" — "${alert.detail}" (${alert.severity}, ${alert.region}). In under 120 words: explain what this attack is, how it works in the Nigerian context, and the single most important immediate action the institution should take. Be specific and actionable.`;
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { maxOutputTokens: 250, temperature: 0.4 },
+      }),
+    }
+  );
+  if (!res.ok) throw new Error(`Gemini ${res.status}`);
+  const data = await res.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || 'Unable to generate analysis.';
+}
+
+// ── MOCK DATA (fallbacks when API is offline) ─────────────────────────────────
 const ALERTS = [
   { id: 1, severity: 'CRITICAL', type: 'Phishing Campaign', title: 'BVN Harvesting Portal Active', detail: 'secure-bankng.com mimicking CBN portal. 2,340 clicks recorded in last 6 hours.', region: 'Nationwide', time: '2 min ago', match: true },
   { id: 2, severity: 'CRITICAL', type: 'Credential Breach', title: 'API Key Rotation Needed', detail: 'OAuth token hijacking pattern detected. Same pattern caused ₦11B loss at peer institution.', region: 'Lagos', time: '8 min ago', match: true },
@@ -473,8 +538,6 @@ function InstitutionalLogin({ onLogin }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    
-    // Basic validation
     if (!email.trim()) {
       setError('Please enter your institution email');
       return;
@@ -483,14 +546,9 @@ function InstitutionalLogin({ onLogin }) {
       setError('Please enter your password');
       return;
     }
-
     setIsLoading(true);
-
-    // Mock authentication - replace with actual API call
     setTimeout(() => {
-      // Demo credentials: any email with @ and any password works for demo
       if (email.includes('@') && password.length > 0) {
-        // Store institution info in localStorage if remember me is checked
         if (rememberMe) {
           localStorage.setItem('nigersec_institution', JSON.stringify({
             email,
@@ -508,276 +566,51 @@ function InstitutionalLogin({ onLogin }) {
 
   return (
     <div style={{
-     position: 'fixed',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      width: '100%',
-      height: '100%',
+      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
       backgroundImage: 'url("https://i.pinimg.com/736x/9d/30/40/9d3040af6b3363e9e71cb94c5899be18.jpg")',
-      backgroundSize: '100% 100%',
-      backgroundPosition: 'center',
-      backgroundRepeat: 'no-repeat',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
+      backgroundSize: '100% 100%', backgroundPosition: 'center', backgroundRepeat: 'no-repeat',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
       fontFamily: "var(--body), 'DM Sans', sans-serif"
     }}>
-      {/* Dark overlay for better readability */}
-      <div style={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: 'rgba(7, 17, 31, 0.5)',
-        backdropFilter: 'blur(0.5px)'
-      }} />
-      
-      <div style={{
-        position: 'relative',
-        zIndex: 2,
-        width: '100%',
-        maxWidth: '460px',
-        margin: '1.5rem',
-        animation: 'fadeUp 0.5s ease-out'
-      }}>
-        <style>{`
-          @keyframes fadeUp {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-          }
-        `}</style>
-
-        {/* Logo Section */}
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(7, 17, 31, 0.5)', backdropFilter: 'blur(0.5px)' }} />
+      <div style={{ position: 'relative', zIndex: 2, width: '100%', maxWidth: '460px', margin: '1.5rem', animation: 'fadeUp 0.5s ease-out' }}>
+        <style>{`@keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }`}</style>
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-          <div style={{
-            width: '64px',
-            height: '64px',
-            margin: '0 auto 1rem',
-            background: 'linear-gradient(135deg, rgba(0,168,107,0.2), rgba(0,135,81,0.15))',
-            border: '1px solid rgba(0,168,107,0.4)',
-            borderRadius: '50%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '28px'
-          }}>
-            🛡
-          </div>
-          <h1 style={{
-            fontFamily: "var(--head), 'Syne', sans-serif",
-            fontSize: '1.75rem',
-            fontWeight: 800,
-            color: '#FEF9C3',
-            marginBottom: '0.5rem',
-            letterSpacing: '-0.02em'
-          }}>
-            NigerSec
-          </h1>
-          <p style={{
-            fontSize: '0.85rem',
-            color: 'var(--muted)',
-            letterSpacing: '0.05em',
-            textTransform: 'uppercase'
-          }}>
-            Institutional Threat Intelligence
-          </p>
+          <div style={{ width: '64px', height: '64px', margin: '0 auto 1rem', background: 'linear-gradient(135deg, rgba(0,168,107,0.2), rgba(0,135,81,0.15))', border: '1px solid rgba(0,168,107,0.4)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px' }}>🛡</div>
+          <h1 style={{ fontFamily: "var(--head), 'Syne', sans-serif", fontSize: '1.75rem', fontWeight: 800, color: '#FEF9C3', marginBottom: '0.5rem', letterSpacing: '-0.02em' }}>NigerSec</h1>
+          <p style={{ fontSize: '0.85rem', color: 'var(--muted)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Institutional Threat Intelligence</p>
         </div>
-
-        {/* Login Card */}
-        <div style={{
-          background: 'rgba(12, 26, 46, 0.95)',
-          backdropFilter: 'blur(10px)',
-          border: '1px solid rgba(0, 168, 107, 0.3)',
-          borderRadius: '20px',
-          padding: '2rem 1.8rem',
-          boxShadow: '0 25px 45px -12px rgba(0, 0, 0, 0.5)'
-        }}>
+        <div style={{ background: 'rgba(12, 26, 46, 0.95)', backdropFilter: 'blur(10px)', border: '1px solid rgba(0, 168, 107, 0.3)', borderRadius: '20px', padding: '2rem 1.8rem', boxShadow: '0 25px 45px -12px rgba(0, 0, 0, 0.5)' }}>
           <div style={{ textAlign: 'center', marginBottom: '1.8rem' }}>
-            <div style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '8px',
-              background: 'rgba(0,168,107,0.1)',
-              border: '1px solid rgba(0,168,107,0.2)',
-              borderRadius: '20px',
-              padding: '5px 14px',
-              fontSize: '11px',
-              color: '#4AE8A0'
-            }}>
-              Secure Institution Login
-            </div>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'rgba(0,168,107,0.1)', border: '1px solid rgba(0,168,107,0.2)', borderRadius: '20px', padding: '5px 14px', fontSize: '11px', color: '#4AE8A0' }}>Secure Institution Login</div>
           </div>
-
           <form onSubmit={handleSubmit}>
             <div style={{ marginBottom: '1.2rem' }}>
-              <label style={{
-                display: 'block',
-                fontSize: '12px',
-                color: 'var(--muted)',
-                marginBottom: '6px',
-                fontWeight: 500
-              }}>
-                Institution Email
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="compliance@yourbank.ng"
-                style={{
-                  width: '100%',
-                  background: 'rgba(7, 17, 31, 0.8)',
-                  border: error && !email ? '1px solid var(--red)' : '1px solid rgba(255,255,255,0.1)',
-                  borderRadius: '10px',
-                  padding: '12px 0.2px',
-                  color: 'var(--text)',
-                  fontSize: '14px',
-                  outline: 'none',
-                  transition: 'all 0.2s',
-                }}
-                onFocus={(e) => e.target.style.borderColor = 'var(--green)'}
-                onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
-              />
+              <label style={{ display: 'block', fontSize: '12px', color: 'var(--muted)', marginBottom: '6px', fontWeight: 500 }}>Institution Email</label>
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="compliance@yourbank.ng" style={{ width: '100%', background: 'rgba(7, 17, 31, 0.8)', border: error && !email ? '1px solid var(--red)' : '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', padding: '12px 0.2px', color: 'var(--text)', fontSize: '14px', outline: 'none', transition: 'all 0.2s', textAlign: 'center' }} onFocus={(e) => e.target.style.borderColor = 'var(--green)'} onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.1)'} />
             </div>
-
             <div style={{ marginBottom: '0.8rem' }}>
-              <label style={{
-                display: 'block',
-                fontSize: '12px',
-                color: 'var(--muted)',
-                marginBottom: '6px',
-                fontWeight: 500,
-              }}>
-                Password
-              </label>
-              <input
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                style={{
-                  width: '100%',
-                  background: 'rgba(7, 17, 31, 0.8)',
-                  border: error && !password ? '1px solid var(--red)' : '1px solid rgba(255,255,255,0.1)',
-                  borderRadius: '10px',
-                  padding: '12px 0.2px',
-                  color: 'var(--text)',
-                  fontSize: '14px',
-                  outline: 'none',
-                  transition: 'all 0.2s'
-                }}
-                onFocus={(e) => e.target.style.borderColor = 'var(--green)'}
-                onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
-              />
+              <label style={{ display: 'block', fontSize: '12px', color: 'var(--muted)', marginBottom: '6px', fontWeight: 500 }}>Password</label>
+              <input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" style={{ width: '100%', background: 'rgba(7, 17, 31, 0.8)', border: error && !password ? '1px solid var(--red)' : '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', padding: '12px 0.2px', color: 'var(--text)', fontSize: '14px', outline: 'none', transition: 'all 0.2s', textAlign: 'center' }} onFocus={(e) => e.target.style.borderColor = 'var(--green)'} onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.1)'} />
             </div>
-
             <div style={{ marginBottom: '1.2rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <input
-                type="checkbox"
-                id="showPassword"
-                checked={showPassword}
-                onChange={(e) => setShowPassword(e.target.checked)}
-                style={{ cursor: 'pointer' }}
-              />
-              <label htmlFor="showPassword" style={{ fontSize: '12px', color: 'var(--muted)', cursor: 'pointer' }}>
-                Show Password
-              </label>
+              <input type="checkbox" id="showPassword" checked={showPassword} onChange={(e) => setShowPassword(e.target.checked)} style={{ cursor: 'pointer' }} />
+              <label htmlFor="showPassword" style={{ fontSize: '12px', color: 'var(--muted)', cursor: 'pointer' }}>Show Password</label>
             </div>
-
-            {error && (
-              <div style={{
-                background: 'rgba(239,68,68,0.1)',
-                border: '1px solid rgba(239,68,68,0.3)',
-                borderRadius: '10px',
-                padding: '10px 14px',
-                marginBottom: '1.2rem',
-                fontSize: '12px',
-                color: '#FCA5A5',
-                textAlign: 'center'
-              }}>
-                {error}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={isLoading}
-              style={{
-                width: '100%',
-                background: 'linear-gradient(135deg, #00A86B, #008751)',
-                border: 'none',
-                borderRadius: '10px',
-                padding: '12px',
-                color: '#fff',
-                fontSize: '14px',
-                fontWeight: 700,
-                cursor: isLoading ? 'not-allowed' : 'pointer',
-                transition: 'all 0.2s',
-                opacity: isLoading ? 0.7 : 1,
-                marginBottom: '1rem'
-              }}
-              onMouseEnter={(e) => {
-                if (!isLoading) e.target.style.opacity = '0.85';
-              }}
-              onMouseLeave={(e) => {
-                if (!isLoading) e.target.style.opacity = '1';
-              }}
-            >
-              {isLoading ? 'Authenticating...' : 'LOGIN →'}
-            </button>
-
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              fontSize: '12px',
-              marginBottom: '1.5rem'
-            }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                />
-                <span style={{ color: 'var(--muted)' }}>Remember me</span>
-              </label>
-              <a href="#" style={{ color: '#4AE8A0', textDecoration: 'none' }} onClick={(e) => e.preventDefault()}>
-                Forgot Password?
-              </a>
+            {error && <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '10px', padding: '10px 14px', marginBottom: '1.2rem', fontSize: '12px', color: '#FCA5A5', textAlign: 'center' }}>{error}</div>}
+            <button type="submit" disabled={isLoading} style={{ width: '100%', background: 'linear-gradient(135deg, #00A86B, #008751)', border: 'none', borderRadius: '10px', padding: '12px', color: '#fff', fontSize: '14px', fontWeight: 700, cursor: isLoading ? 'not-allowed' : 'pointer', transition: 'all 0.2s', opacity: isLoading ? 0.7 : 1, marginBottom: '1rem' }}>{isLoading ? 'Authenticating...' : 'LOGIN →'}</button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', marginBottom: '1.5rem' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}><input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} /><span style={{ color: 'var(--muted)' }}>Remember me</span></label>
+              <a href="#" style={{ color: '#4AE8A0', textDecoration: 'none' }} onClick={(e) => e.preventDefault()}>Forgot Password?</a>
             </div>
-
-            <div style={{
-              textAlign: 'center',
-              borderTop: '1px solid rgba(255,255,255,0.08)',
-              paddingTop: '1.2rem'
-            }}>
-              <p style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '6px' }}>
-                Don't have access?
-              </p>
-              <a href="#" style={{ color: '#4AE8A0', fontSize: '12px', textDecoration: 'none' }} onClick={(e) => e.preventDefault()}>
-                Request Institution Access →
-              </a>
+            <div style={{ textAlign: 'center', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '1.2rem' }}>
+              <p style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '6px' }}>Don't have access?</p>
+              <a href="#" style={{ color: '#4AE8A0', fontSize: '12px', textDecoration: 'none' }} onClick={(e) => e.preventDefault()}>Request Institution Access →</a>
             </div>
           </form>
         </div>
-
-        {/* Security Footer */}
-        <div style={{
-          textAlign: 'center',
-          marginTop: '1.5rem',
-          fontSize: '11px',
-          color: 'var(--muted2)',
-          display: 'flex',
-          justifyContent: 'center',
-          gap: '16px',
-          flexWrap: 'wrap'
-        }}>
-          <span>256-bit SSL Encrypted</span>
-          <span>•</span>
-          <span>NDPA 2023 Compliant</span>
+        <div style={{ textAlign: 'center', marginTop: '1.5rem', fontSize: '11px', color: 'var(--muted2)', display: 'flex', justifyContent: 'center', gap: '16px', flexWrap: 'wrap' }}>
+          <span>256-bit SSL Encrypted</span><span>•</span><span>NDPA 2023 Compliant</span>
         </div>
       </div>
     </div>
@@ -795,37 +628,82 @@ function KPI({ label, value, delta, up, color }) {
       <div className="id-kpi-accent" style={{ background: color }} />
       <div className="id-kpi-label">{label}</div>
       <div className="id-kpi-value" style={{ color }}>{value}</div>
-      <div className={`id-kpi-delta ${up ? 'delta-up' : 'delta-down'}`}>
-        {up ? '↑' : '↓'} {delta}
-      </div>
+      <div className={`id-kpi-delta ${up ? 'delta-up' : 'delta-down'}`}>{up ? '↑' : '↓'} {delta}</div>
     </div>
   );
 }
 
-// ── DASHBOARD PANELS (unchanged from your original) ─────────────────────────
-function PanelAlerts() {
+// ── GEMINI THREAT EXPLAINER ──────────────────────────────────────────────────
+function ExplainButton({ alert }) {
+  const [explanation, setExplanation] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  const explain = async () => {
+    if (explanation) { setOpen(o => !o); return; }
+    setLoading(true); setOpen(true);
+    try {
+      const text = await apiExplainThreat(alert);
+      setExplanation(text);
+    } catch {
+      setExplanation('Gemini API unavailable. Add VITE_GEMINI_API_KEY to your .env to enable AI analysis.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div>
+      <button className="btn-xs btn-xs-ghost" onClick={explain} style={{ color: '#4AE8A0', borderColor: 'rgba(74,232,160,0.3)' }}>
+        {loading ? '⏳ Analysing…' : open ? '▲ Hide AI analysis' : '✦ AI Explain'}
+      </button>
+      {open && (
+        <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(74,232,160,0.05)', border: '1px solid rgba(74,232,160,0.2)', borderRadius: 8, fontSize: 12, color: '#C8E8C0', lineHeight: 1.7 }}>
+          {loading ? 'Gemini is analysing this threat…' : explanation}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── DASHBOARD PANELS ──────────────────────────────────────────────────────────
+function PanelAlerts({ orgId }) {
+  const [alerts, setAlerts] = useState(null);
+  const [source, setSource] = useState('loading');
+
+  useEffect(() => {
+    const load = () => {
+      apiFetchAlerts(orgId).then(data => { setAlerts(data.alerts || []); setSource('live'); })
+        .catch(() => { setAlerts(ALERTS); setSource('demo'); });
+    };
+    load();
+    const interval = setInterval(load, 30000);
+    return () => clearInterval(interval);
+  }, [orgId]);
+
+  const items = alerts || [];
   return (
     <div>
       <div className="id-section-head">
-        <h2><span className="id-refresh-dot" />Live Alert Feed</h2>
-        <span>Auto-refreshes every 5s</span>
+        <h2><span className="id-refresh-dot" />Live Alert Feed{source === 'live' && <span style={{ marginLeft: 8, fontSize: 10, color: '#4AE8A0', fontWeight: 700 }}> ● Live API</span>}{source === 'demo' && <span style={{ marginLeft: 8, fontSize: 10, color: '#EAB308', fontWeight: 700 }}> ○ Demo data</span>}</h2>
+        <span>Auto-refreshes every 30s</span>
       </div>
-      {ALERTS.map(a => (
+      {source === 'loading' && <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>Fetching live threats…</div>}
+      {items.map(a => (
         <div key={a.id} className={`id-alert-item${a.match ? ' match' : ''}`}>
           <div><SevPill s={a.severity} /></div>
           <div className="id-alert-body">
             <div className="id-alert-title">{a.title}</div>
             <div className="id-alert-detail">{a.detail}</div>
-            <div className="id-alert-meta">
-              <span className="id-alert-region">📍 {a.region}</span>
-              {a.match && <span style={{ fontSize: 11, color: '#FCA5A5', padding: '2px 6px', background: 'rgba(239,68,68,0.1)', borderRadius: 4 }}>⚠ Matches your profile</span>}
-              <span className="id-alert-time">{a.time}</span>
-            </div>
-            <div className="id-alert-actions">
-              <button className="btn-xs btn-xs-red">Block</button>
-              <button className="btn-xs btn-xs-ghost">Details</button>
-              {a.match && <button className="btn-xs btn-xs-green">Apply protection</button>}
-            </div>
+            {a.ml_score !== undefined && (
+              <div style={{ margin: '6px 0' }}>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 3, display: 'flex', justifyContent: 'space-between' }}><span>ML threat score</span><span style={{ color: a.severity === 'CRITICAL' ? '#FCA5A5' : '#FDBA74' }}>{a.ml_score}/100</span></div>
+                <div style={{ background: 'var(--border)', borderRadius: 3, height: 4, overflow: 'hidden' }}><div style={{ width: `${a.ml_score}%`, height: 4, borderRadius: 3, background: a.severity === 'CRITICAL' ? '#EF4444' : '#F97316', transition: 'width 0.8s ease' }} /></div>
+              </div>
+            )}
+            <div className="id-alert-meta"><span className="id-alert-region">📍 {a.region}</span>{a.match && <span style={{ fontSize: 11, color: '#FCA5A5', padding: '2px 6px', background: 'rgba(239,68,68,0.1)', borderRadius: 4 }}>⚠ Matches your profile</span>}<span className="id-alert-time">{a.time}</span></div>
+            <div className="id-alert-actions"><button className="btn-xs btn-xs-red">Block</button><button className="btn-xs btn-xs-ghost">Details</button>{a.match && <button className="btn-xs btn-xs-green">Apply protection</button>}</div>
+            <div style={{ marginTop: 6 }}><ExplainButton alert={a} /></div>
           </div>
         </div>
       ))}
@@ -833,35 +711,25 @@ function PanelAlerts() {
   );
 }
 
-function PanelBVN() {
+function PanelBVN({ orgId }) {
+  const [batches, setBatches] = useState(null);
+  const [source, setSource] = useState('loading');
+
+  useEffect(() => {
+    apiFetchBVNBatches(orgId).then(data => { setBatches(data.batches || []); setSource('live'); })
+      .catch(() => { setBatches(BVN_BATCHES); setSource('demo'); });
+  }, [orgId]);
+
+  const items = batches || [];
   return (
     <div>
-      <div className="id-section-head">
-        <h2>BVN &amp; NIN Batch Tracker</h2>
-        <span>{BVN_BATCHES.length} active batches</span>
-      </div>
-      <div style={{ padding: '8px 12px', background: 'rgba(74,232,160,0.07)', border: '1px solid rgba(74,232,160,0.15)', borderRadius: 8, marginBottom: 12, fontSize: 12, color: '#4AE8A0' }}>
-        ✓ Your institution's BVNs — 0 confirmed exposures in active batches
-      </div>
-      {BVN_BATCHES.map(b => (
+      <div className="id-section-head"><h2>BVN &amp; NIN Batch Tracker</h2><span>{items.length} active batches {source === 'live' && <span style={{ color: '#4AE8A0' }}>● Live</span>}</span></div>
+      <div style={{ padding: '8px 12px', background: 'rgba(74,232,160,0.07)', border: '1px solid rgba(74,232,160,0.15)', borderRadius: 8, marginBottom: 12, fontSize: 12, color: '#4AE8A0' }}>✓ Your institution's BVNs — 0 confirmed exposures in active batches</div>
+      {items.map(b => (
         <div key={b.id} className="id-batch-card">
-          <div className="id-batch-head">
-            <div>
-              <div className="id-batch-id">{b.id}</div>
-              <div className="id-batch-count">{b.count} records</div>
-              <div style={{ fontSize: 12, color: '#FCA5A5', fontWeight: 600 }}>Est. {b.exposed} exposed</div>
-            </div>
-            <SevPill s={b.severity} />
-          </div>
-          <div className="id-batch-meta">
-            <span className="id-batch-source">Source: {b.source}</span>
-            <span className="id-batch-source">Detected: {b.detected}</span>
-            {b.yourExposure && <span className="id-exposure-warn">⚠ Your customers may be affected</span>}
-          </div>
-          <div className="id-alert-actions" style={{ marginTop: 8 }}>
-            <button className="btn-xs btn-xs-ghost">View full batch</button>
-            <button className="btn-xs btn-xs-red">Flag for review</button>
-          </div>
+          <div className="id-batch-head"><div><div className="id-batch-id">{b.id}</div><div className="id-batch-count">{b.count} records</div><div style={{ fontSize: 12, color: '#FCA5A5', fontWeight: 600 }}>Est. {b.exposed} exposed</div></div><SevPill s={b.severity} /></div>
+          <div className="id-batch-meta"><span className="id-batch-source">Source: {b.source}</span><span className="id-batch-source">Detected: {b.detected}</span>{b.yourExposure && <span className="id-exposure-warn">⚠ Your customers may be affected</span>}</div>
+          <div className="id-alert-actions" style={{ marginTop: 8 }}><button className="btn-xs btn-xs-ghost">View full batch</button><button className="btn-xs btn-xs-red">Flag for review</button></div>
         </div>
       ))}
     </div>
@@ -869,65 +737,55 @@ function PanelBVN() {
 }
 
 function PanelPhishing() {
+  const [campaigns, setCampaigns] = useState(null);
+  const [source, setSource] = useState('loading');
+
+  useEffect(() => {
+    fetch(`${API_URL}/v1/institutional/phishing`).then(r => r.json()).then(data => { setCampaigns(data.campaigns || []); setSource('live'); })
+      .catch(() => { setCampaigns(PHISHING); setSource('demo'); });
+  }, []);
+
+  const items = campaigns || [];
   return (
     <div>
-      <div className="id-section-head">
-        <h2>Phishing Campaigns</h2>
-        <span>{PHISHING.length} active campaigns</span>
-      </div>
-      {PHISHING.map(p => (
+      <div className="id-section-head"><h2>Phishing Campaigns</h2><span>{items.length} active campaigns {source === 'live' && <span style={{ color: '#4AE8A0' }}>● Live</span>}</span></div>
+      {items.map(p => (
         <div key={p.id} className="id-phish-item">
-          <div className="id-phish-head">
-            <div>
-              <div className="id-phish-title">Campaign #{p.id}</div>
-              <div className="id-phish-active">Active {p.active} · {p.target}</div>
-            </div>
-            <SevPill s={p.severity} />
-          </div>
-          <div className="id-phish-domains">
-            {p.domains.map(d => <span key={d} className="id-domain-tag">⚠ {d}</span>)}
-          </div>
-          <div style={{ marginBottom: 8 }}>
-            {p.emails.map(e => <div key={e} className="id-phish-email">"{e}"</div>)}
-          </div>
-          <div className="id-alert-actions">
-            <button className="btn-xs btn-xs-red">Block all domains</button>
-            <button className="btn-xs btn-xs-ghost">Export signatures</button>
-            <button className="btn-xs btn-xs-ghost">Report to NDPC</button>
-          </div>
+          <div className="id-phish-head"><div><div className="id-phish-title">Campaign #{p.id}</div><div className="id-phish-active">Active {p.active} · {p.target}</div></div><SevPill s={p.severity} /></div>
+          <div className="id-phish-domains">{p.domains.map(d => <span key={d} className="id-domain-tag">⚠ {d}</span>)}</div>
+          <div style={{ marginBottom: 8 }}>{p.emails.map(e => <div key={e} className="id-phish-email">"{e}"</div>)}</div>
+          <div className="id-alert-actions"><button className="btn-xs btn-xs-red">Block all domains</button><button className="btn-xs btn-xs-ghost">Export signatures</button><button className="btn-xs btn-xs-ghost">Report to NDPC</button></div>
         </div>
       ))}
     </div>
   );
 }
 
-function PanelPeer() {
+function PanelPeer({ orgId }) {
   const [submitted, setSubmitted] = useState(false);
+  const [reports, setReports] = useState(null);
+  const [source, setSource] = useState('loading');
+
+  useEffect(() => {
+    fetch(`${API_URL}/v1/institutional/peer-reports`).then(r => r.json()).then(data => { setReports(data.reports || []); setSource('live'); })
+      .catch(() => { setReports(PEER_REPORTS); setSource('demo'); });
+  }, []);
+
+  const items = reports || [];
   return (
     <div>
-      <div className="id-section-head">
-        <h2>Peer Intelligence</h2>
-        <span>Identity stripped before sharing</span>
-      </div>
+      <div className="id-section-head"><h2>Peer Intelligence</h2><span>Identity stripped before sharing {source === 'live' && <span style={{ color: '#4AE8A0' }}>● Live</span>}</span></div>
       <div className="id-grid-2">
         <div>
-          <div className="id-anon-badge"> Anonymised — institution identity removed before sharing</div>
-          {PEER_REPORTS.map(r => (
+          <div className="id-anon-badge">🔒 Anonymised — institution identity removed before sharing</div>
+          {items.map(r => (
             <div key={r.id} className="id-peer-item">
-              <div className="id-peer-head">
-                <span className="id-peer-id">REPORT-{r.id} · {r.sector}</span>
-                <span className="id-peer-time">{r.time}</span>
-              </div>
+              <div className="id-peer-head"><span className="id-peer-id">REPORT-{r.id} · {r.sector}</span><span className="id-peer-time">{r.time}</span></div>
               <div className="id-peer-issue">{r.issue}</div>
               <div className="id-peer-impact">{r.impact}</div>
               <div className="id-peer-action">→ {r.action}</div>
-              <div className="id-peer-protected">
-                <span>{r.protected}</span> institutions already applied this protection
-              </div>
-              <div className="id-alert-actions" style={{ marginTop: 8 }}>
-                <button className="btn-xs btn-xs-green">Apply protection</button>
-                <button className="btn-xs btn-xs-ghost">Full report</button>
-              </div>
+              <div className="id-peer-protected"><span>{r.protected}</span> institutions already applied this protection</div>
+              <div className="id-alert-actions" style={{ marginTop: 8 }}><button className="btn-xs btn-xs-green">Apply protection</button><button className="btn-xs btn-xs-ghost">Full report</button></div>
             </div>
           ))}
         </div>
@@ -935,35 +793,16 @@ function PanelPeer() {
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>Submit a breach report</div>
           {submitted ? (
             <div style={{ textAlign: 'center', padding: '2rem 1rem', color: '#4AE8A0' }}>
-              <div style={{ fontSize: '2rem', marginBottom: 8 }}>✓</div>
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>Report submitted anonymously</div>
+              <div style={{ fontSize: '2rem', marginBottom: 8 }}>✓</div><div style={{ fontWeight: 600, marginBottom: 4 }}>Report submitted anonymously</div>
               <div style={{ fontSize: 12, color: 'var(--muted)' }}>Your institution identity has been removed. The intelligence will be shared with the network within 10 minutes.</div>
               <button className="btn-xs btn-xs-ghost" style={{ marginTop: 12 }} onClick={() => setSubmitted(false)}>Submit another</button>
             </div>
           ) : (
             <>
-              <div className="id-form-field">
-                <label className="id-form-label">Incident type</label>
-                <select className="id-form-select">
-                  <option>API Credential Theft</option>
-                  <option>Phishing Campaign</option>
-                  <option>BVN/NIN Batch Exposure</option>
-                  <option>SIM Swap Cluster</option>
-                  <option>Card Testing Burst</option>
-                  <option>Other</option>
-                </select>
-              </div>
-              <div className="id-form-field">
-                <label className="id-form-label">Region affected</label>
-                <input className="id-form-input" placeholder="e.g. Lagos" />
-              </div>
-              <div className="id-form-field">
-                <label className="id-form-label">Anonymised description</label>
-                <textarea className="id-form-textarea" placeholder="Describe in general terms. Do not include institution name, customer names, or account numbers." />
-              </div>
-              <button className="id-submit-btn" onClick={() => setSubmitted(true)}>
-                Submit anonymously →
-              </button>
+              <div className="id-form-field"><label className="id-form-label">Incident type</label><select className="id-form-select"><option>API Credential Theft</option><option>Phishing Campaign</option><option>BVN/NIN Batch Exposure</option><option>SIM Swap Cluster</option><option>Card Testing Burst</option><option>Other</option></select></div>
+              <div className="id-form-field"><label className="id-form-label">Region affected</label><input className="id-form-input" placeholder="e.g. Lagos" /></div>
+              <div className="id-form-field"><label className="id-form-label">Anonymised description</label><textarea className="id-form-textarea" placeholder="Describe in general terms. Do not include institution name, customer names, or account numbers." /></div>
+              <button className="id-submit-btn" onClick={() => setSubmitted(true)}>Submit anonymously →</button>
             </>
           )}
         </div>
@@ -974,170 +813,69 @@ function PanelPeer() {
 
 function PanelCompliance() {
   const [activeMonth, setActiveMonth] = useState('Jun');
+  const [months, setMonths] = useState(null);
+  const [source, setSource] = useState('loading');
+
+  useEffect(() => {
+    fetch(`${API_URL}/v1/institutional/compliance`).then(r => r.json()).then(data => { setMonths(data.months || []); setSource('live'); })
+      .catch(() => { setMonths(COMPLIANCE_MONTHS); setSource('demo'); });
+  }, []);
+
+  const items = months || COMPLIANCE_MONTHS;
   return (
     <div>
-      <div className="id-section-head">
-        <h2>NDPA 2023 Compliance</h2>
-        <span>Auto-generated from submitted data</span>
-      </div>
+      <div className="id-section-head"><h2>NDPA 2023 Compliance</h2><span>Auto-generated from submitted data {source === 'live' && <span style={{ color: '#4AE8A0' }}>● Live</span>}</span></div>
       <div className="id-grid-2">
         <div className="id-card">
-          <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
-            <svg width="100" height="100" viewBox="0 0 100 100" style={{ display: 'block', margin: '0 auto 8px' }}>
-              <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="8" />
-              <circle cx="50" cy="50" r="40" fill="none" stroke="#00A86B" strokeWidth="8"
-                strokeDasharray={`${87 * 2.51} ${100 * 2.51}`}
-                strokeLinecap="round" transform="rotate(-90 50 50)" />
-              <text x="50" y="46" textAnchor="middle" fill="#E7EEFC" fontSize="18" fontWeight="800" fontFamily="Syne,sans-serif">87%</text>
-              <text x="50" y="60" textAnchor="middle" fill="#6B7FA3" fontSize="9" fontFamily="DM Sans,sans-serif">COMPLIANCE</text>
-            </svg>
-          </div>
-          <div className="id-month-row">
-            {COMPLIANCE_MONTHS.map(m => (
-              <div key={m.m}
-                className={`id-month-chip ${m.status}${activeMonth === m.m ? ' active' : ''}`}
-                onClick={() => setActiveMonth(m.m)}
-                style={activeMonth === m.m ? { outline: '2px solid var(--green)' } : {}}>
-                {m.m}{m.score ? ` ${m.score}%` : ''}
-              </div>
-            ))}
-          </div>
-          <div className="id-compliance-items">
-            {[
-              ['Data breach reporting', true, 'Submitted Mar 15, 2026'],
-              ['DPO assigned', true, 'Named Nov 2025'],
-              ['NDPA registration', true, 'NDPC/REG/2024/0847'],
-              ['Privacy policy published', true, 'Updated Feb 2026'],
-              ['Data mapping complete', false, 'In progress — due Jul 2026'],
-            ].map(([item, ok, note]) => (
-              <div key={item} className="id-compliance-row">
-                <span>{item}</span>
-                <div style={{ textAlign: 'right' }}>
-                  <span className={ok ? 'id-check' : 'id-warn-icon'}>{ok ? '✓' : '⚠'}</span>
-                  <div style={{ fontSize: 10, color: 'var(--muted)' }}>{note}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="id-export-row">
-            <button className="id-export-btn id-export-btn-green">Export PDF</button>
-            <button className="id-export-btn id-export-btn-ghost">Export Excel</button>
-            <button className="id-export-btn id-export-btn-ghost">Submit to NDPC</button>
-          </div>
+          <div style={{ textAlign: 'center', marginBottom: '1rem' }}><svg width="100" height="100" viewBox="0 0 100 100" style={{ display: 'block', margin: '0 auto 8px' }}><circle cx="50" cy="50" r="40" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="8" /><circle cx="50" cy="50" r="40" fill="none" stroke="#00A86B" strokeWidth="8" strokeDasharray={`${87 * 2.51} ${100 * 2.51}`} strokeLinecap="round" transform="rotate(-90 50 50)" /><text x="50" y="46" textAnchor="middle" fill="#E7EEFC" fontSize="18" fontWeight="800" fontFamily="Syne,sans-serif">87%</text><text x="50" y="60" textAnchor="middle" fill="#6B7FA3" fontSize="9" fontFamily="DM Sans,sans-serif">COMPLIANCE</text></svg></div>
+          <div className="id-month-row">{items.map(m => (<div key={m.m} className={`id-month-chip ${m.status}${activeMonth === m.m ? ' active' : ''}`} onClick={() => setActiveMonth(m.m)} style={activeMonth === m.m ? { outline: '2px solid var(--green)' } : {}}>{m.m}{m.score ? ` ${m.score}%` : ''}</div>))}</div>
+          <div className="id-compliance-items">{[
+            ['Data breach reporting', true, 'Submitted Mar 15, 2026'],
+            ['DPO assigned', true, 'Named Nov 2025'],
+            ['NDPA registration', true, 'NDPC/REG/2024/0847'],
+            ['Privacy policy published', true, 'Updated Feb 2026'],
+            ['Data mapping complete', false, 'In progress — due Jul 2026'],
+          ].map(([item, ok, note]) => (<div key={item} className="id-compliance-row"><span>{item}</span><div style={{ textAlign: 'right' }}><span className={ok ? 'id-check' : 'id-warn-icon'}>{ok ? '✓' : '⚠'}</span><div style={{ fontSize: 10, color: 'var(--muted)' }}>{note}</div></div></div>))}</div>
+          <div className="id-export-row"><button className="id-export-btn id-export-btn-green">Export PDF</button><button className="id-export-btn id-export-btn-ghost">Export Excel</button><button className="id-export-btn id-export-btn-ghost">Submit to NDPC</button></div>
         </div>
         <div className="id-card">
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>Reporting history</div>
-          <table className="id-table">
-            <thead>
-              <tr>
-                <th>Month</th><th>Status</th><th>Score</th><th>Submitted</th>
-              </tr>
-            </thead>
-            <tbody>
-              {COMPLIANCE_MONTHS.filter(m => m.status !== 'upcoming').map(m => (
-                <tr key={m.m}>
-                  <td>{m.m} 2026</td>
-                  <td><span className={`sev sev-${m.status === 'submitted' ? 'LOW' : 'MEDIUM'}`}>{m.status.toUpperCase()}</span></td>
-                  <td>{m.score ? `${m.score}%` : '—'}</td>
-                  <td style={{ fontSize: 11, color: 'var(--muted)' }}>{m.status === 'submitted' ? '✓ On time' : 'Draft ready'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <table className="id-table"><thead><tr><th>Month</th><th>Status</th><th>Score</th><th>Submitted</th></tr></thead><tbody>{items.filter(m => m.status !== 'upcoming').map(m => (<tr key={m.m}><td>{m.m} 2026</td><td><span className={`sev sev-${m.status === 'submitted' ? 'LOW' : 'MEDIUM'}`}>{m.status.toUpperCase()}</span></td><td>{m.score ? `${m.score}%` : '—'}</td><td>{m.status === 'submitted' ? '✓ On time' : 'Draft ready'}</td></tr>))}</tbody></table>
         </div>
       </div>
     </div>
   );
 }
 
-function PanelDashboard() {
+function PanelDashboard({ orgId }) {
+  const [kpis, setKpis] = useState(null);
+  const [source, setSource] = useState('loading');
+  const [hotspots, setHotspots] = useState(null);
+  const [mapSource, setMapSource] = useState('loading');
+
+  useEffect(() => {
+    apiFetchKPIs(orgId).then(data => { setKpis(data); setSource('live'); }).catch(() => { setKpis({ criticalAlerts: 3, threatsBlocked: 127, fraudHotspots: 12, complianceScore: 87 }); setSource('demo'); });
+    apiFetchHotspots().then(data => { setHotspots(data.hotspots || []); setMapSource('live'); }).catch(() => { setHotspots(HOTSPOTS); setMapSource('demo'); });
+  }, [orgId]);
+
+  const k = kpis || { criticalAlerts: 3, threatsBlocked: 127, fraudHotspots: 12, complianceScore: 87 };
+  const mapPoints = hotspots || HOTSPOTS;
+
   return (
     <div>
       <div className="id-kpis">
-        <KPI label="Critical alerts" value="03" delta="2 in last hour" up={false} color="#EF4444" />
-        <KPI label="Threats blocked" value="127" delta="34% vs last week" up={true} color="#4AE8A0" />
-        <KPI label="Fraud hotspots" value="12" delta="1 region downgraded" up={true} color="#EAB308" />
-        <KPI label="Compliance score" value="87%" delta="Report auto-generated" up={true} color="#00A86B" />
+        <KPI label="Critical alerts" value={String(k.criticalAlerts).padStart(2,'0')} delta="2 in last hour" up={false} color="#EF4444" />
+        <KPI label="Threats blocked" value={k.threatsBlocked} delta="34% vs last week" up={true} color="#4AE8A0" />
+        <KPI label="Fraud hotspots" value={k.fraudHotspots} delta="1 region downgraded" up={true} color="#EAB308" />
+        <KPI label="Compliance score" value={`${k.complianceScore}%`} delta="Report auto-generated" up={true} color="#00A86B" />
       </div>
-
       <div className="id-grid-60-40">
-        <div className="id-card">
-          <div className="id-section-head">
-            <h2><span className="id-refresh-dot" />Critical alerts</h2>
-            <span>5s refresh</span>
-          </div>
-          {ALERTS.slice(0, 3).map(a => (
-            <div key={a.id} className={`id-alert-item${a.match ? ' match' : ''}`}>
-              <SevPill s={a.severity} />
-              <div className="id-alert-body">
-                <div className="id-alert-title">{a.title}</div>
-                <div className="id-alert-detail">{a.detail}</div>
-                <div className="id-alert-meta">
-                  <span className="id-alert-region">📍 {a.region}</span>
-                  <span className="id-alert-time">{a.time}</span>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="id-card">
-          <div className="id-section-head">
-            <h2>Fraud hotspots</h2>
-            <span>Nigeria</span>
-          </div>
-          <div className="id-map">
-            <div className="id-map-grid" />
-            <div className="id-map-label">NIGERIA · FRAUD DENSITY MAP</div>
-            {HOTSPOTS.map(h => (
-              <div key={h.city} className="id-hotspot" style={{ left: `${h.x}%`, top: `${h.y}%` }}>
-                <div className="id-hotspot-ring" style={{ background: SEV_COLOR[h.severity] + '33' }} />
-                <div className="id-hotspot-dot" style={{ background: SEV_COLOR[h.severity] }}>
-                  <div className="id-hotspot-label" style={{ color: SEV_COLOR[h.severity] }}>
-                    {h.city} ({h.count})
-                  </div>
-                </div>
-              </div>
-            ))}
-            <div className="id-map-legend">
-              {Object.entries(SEV_COLOR).map(([sev, col]) => (
-                <div key={sev} className="id-legend-item">
-                  <div className="id-legend-dot" style={{ background: col }} />
-                  {sev}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <div className="id-card"><div className="id-section-head"><h2><span className="id-refresh-dot" />Critical alerts</h2><span>5s refresh</span></div>{ALERTS.slice(0,3).map(a => (<div key={a.id} className={`id-alert-item${a.match ? ' match' : ''}`}><SevPill s={a.severity} /><div className="id-alert-body"><div className="id-alert-title">{a.title}</div><div className="id-alert-detail">{a.detail}</div><div className="id-alert-meta"><span className="id-alert-region">📍 {a.region}</span><span className="id-alert-time">{a.time}</span></div></div></div>))}</div>
+        <div className="id-card"><div className="id-section-head"><h2>Fraud hotspots</h2><span>Nigeria {mapSource === 'live' && <span style={{ color: '#4AE8A0' }}>● Live</span>}</span></div><div className="id-map"><div className="id-map-grid" /><div className="id-map-label">NIGERIA · FRAUD DENSITY MAP</div>{mapPoints.map(h => (<div key={h.city} className="id-hotspot" style={{ left: `${h.x}%`, top: `${h.y}%` }}><div className="id-hotspot-ring" style={{ background: SEV_COLOR[h.severity] + '33' }} /><div className="id-hotspot-dot" style={{ background: SEV_COLOR[h.severity] }}><div className="id-hotspot-label" style={{ color: SEV_COLOR[h.severity] }}>{h.city} ({h.count})</div></div></div>))}<div className="id-map-legend">{Object.entries(SEV_COLOR).map(([sev, col]) => (<div key={sev} className="id-legend-item"><div className="id-legend-dot" style={{ background: col }} />{sev}</div>))}</div></div></div>
       </div>
-
       <div className="id-grid-2">
-        <div className="id-card">
-          <div className="id-section-head"><h2>Active attack patterns</h2><span>Matched to your profile</span></div>
-          <table className="id-table">
-            <thead><tr><th>Pattern</th><th>Location</th><th>Severity</th><th>Match</th></tr></thead>
-            <tbody>
-              <tr><td>API credential theft</td><td>Lagos</td><td><SevPill s="HIGH" /></td><td style={{ color: '#FCA5A5' }}>✓ Matches</td></tr>
-              <tr><td>Login brute force</td><td>Nationwide</td><td><SevPill s="CRITICAL" /></td><td style={{ color: '#FCA5A5' }}>✓ Matches</td></tr>
-              <tr><td>Fake KYC portal</td><td>Abuja</td><td><SevPill s="MEDIUM" /></td><td style={{ color: 'var(--muted)' }}>Monitoring</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <div className="id-card">
-          <div className="id-section-head"><h2>Peer reports</h2><span>Anonymised pool</span></div>
-          <table className="id-table">
-            <thead><tr><th>Sector</th><th>Issue</th><th>Action</th></tr></thead>
-            <tbody>
-              {PEER_REPORTS.map(r => (
-                <tr key={r.id}>
-                  <td>{r.sector}</td>
-                  <td>{r.issue}</td>
-                  <td style={{ fontSize: 11, color: '#4AE8A0', fontFamily: 'var(--mono)' }}>{r.action.split('.')[0]}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <div className="id-card"><div className="id-section-head"><h2>Active attack patterns</h2><span>Matched to your profile</span></div><table className="id-table"><thead><tr><th>Pattern</th><th>Location</th><th>Severity</th><th>Match</th></tr></thead><tbody><tr><td>API credential theft</td><td>Lagos</td><td><SevPill s="HIGH" /></td><td style={{ color: '#FCA5A5' }}>✓ Matches</td></tr><tr><td>Login brute force</td><td>Nationwide</td><td><SevPill s="CRITICAL" /></td><td style={{ color: '#FCA5A5' }}>✓ Matches</td></tr><tr><td>Fake KYC portal</td><td>Abuja</td><td><SevPill s="MEDIUM" /></td><td style={{ color: 'var(--muted)' }}>Monitoring</td></tr></tbody></table></div>
+        <div className="id-card"><div className="id-section-head"><h2>Peer reports</h2><span>Anonymised pool</span></div><table className="id-table"><thead><tr><th>Sector</th><th>Issue</th><th>Action</th></tr></thead><tbody>{PEER_REPORTS.map(r => (<tr key={r.id}><td>{r.sector}</td><td>{r.issue}</td><td style={{ fontSize: 11, color: '#4AE8A0', fontFamily: 'var(--mono)' }}>{r.action.split('.')[0]}</td></tr>))}</tbody></table></div>
       </div>
     </div>
   );
@@ -1157,15 +895,16 @@ const NAV_ITEMS = [
 
 function InstitutionDashboard({ user, onLogout }) {
   const [activePanel, setActivePanel] = useState('dashboard');
+  const orgId = user?.email?.split('@')[0] || 'demo';
 
   const renderPanel = () => {
     switch (activePanel) {
-      case 'alerts':     return <PanelAlerts />;
-      case 'bvn':        return <PanelBVN />;
+      case 'alerts':     return <PanelAlerts orgId={orgId} />;
+      case 'bvn':        return <PanelBVN orgId={orgId} />;
       case 'phishing':   return <PanelPhishing />;
-      case 'peer':       return <PanelPeer />;
+      case 'peer':       return <PanelPeer orgId={orgId} />;
       case 'compliance': return <PanelCompliance />;
-      default:           return <PanelDashboard />;
+      default:           return <PanelDashboard orgId={orgId} />;
     }
   };
 
@@ -1174,51 +913,15 @@ function InstitutionDashboard({ user, onLogout }) {
       <style>{CSS}</style>
       <div className="id-wrap">
         <nav className="id-nav">
-          <a href="#" className="id-nav-brand" onClick={(e) => e.preventDefault()}>
-            <div className="id-nav-icon">🛡</div>
-            NigerSec · Institution Portal
-          </a>
-          <div className="id-nav-right">
-            <span className="id-nav-org">{user?.name || 'Flutterwave'} · Compliance Officer</span>
-            <button className="id-nav-alert-btn" aria-label="Alerts">
-              🔔 <span className="id-nav-alert-dot" />
-            </button>
-            <button className="id-nav-logout" onClick={onLogout}>
-              ← Logout
-            </button>
-          </div>
+          <a href="#" className="id-nav-brand" onClick={(e) => e.preventDefault()}><div className="id-nav-icon">🛡</div>NigerSec · Institution Portal</a>
+          <div className="id-nav-right"><span className="id-nav-org">{user?.name || 'Flutterwave'} · Compliance Officer</span><button className="id-nav-alert-btn" aria-label="Alerts">🔔 <span className="id-nav-alert-dot" /></button><button className="id-nav-logout" onClick={onLogout}>← Logout</button></div>
         </nav>
-
         <div className="id-layout">
           <aside className="id-sidebar">
-            <div className="id-sidebar-section">
-              <div className="id-sidebar-label">Intelligence</div>
-              {NAV_ITEMS.map(item => (
-                <div
-                  key={item.id}
-                  className={`id-sidebar-item${activePanel === item.id ? ' active' : ''}`}
-                  onClick={() => setActivePanel(item.id)}
-                >
-                  <span className="icon">{item.icon}</span>
-                  {item.label}
-                  {item.badge && <span className="id-sidebar-badge">{item.badge}</span>}
-                </div>
-              ))}
-            </div>
-            <div className="id-sidebar-section">
-              <div className="id-sidebar-label">Account</div>
-              <div className="id-sidebar-item">
-                <span className="icon">⚙</span> Settings
-              </div>
-              <div className="id-sidebar-item" onClick={onLogout}>
-                <span className="icon">→</span> Sign out
-              </div>
-            </div>
+            <div className="id-sidebar-section"><div className="id-sidebar-label">Intelligence</div>{NAV_ITEMS.map(item => (<div key={item.id} className={`id-sidebar-item${activePanel === item.id ? ' active' : ''}`} onClick={() => setActivePanel(item.id)}><span className="icon">{item.icon}</span>{item.label}{item.badge && <span className="id-sidebar-badge">{item.badge}</span>}</div>))}</div>
+            <div className="id-sidebar-section"><div className="id-sidebar-label">Account</div><div className="id-sidebar-item"><span className="icon">⚙</span> Settings</div><div className="id-sidebar-item" onClick={onLogout}><span className="icon">→</span> Sign out</div></div>
           </aside>
-
-          <main className="id-main">
-            {renderPanel()}
-          </main>
+          <main className="id-main">{renderPanel()}</main>
         </div>
       </div>
     </>
@@ -1231,29 +934,13 @@ export default function App() {
   const [user, setUser] = useState(null);
 
   useEffect(() => {
-    // Check for saved session
     const saved = localStorage.getItem('nigersec_institution');
-    if (saved) {
-      const userData = JSON.parse(saved);
-      setUser(userData);
-      setIsAuthenticated(true);
-    }
+    if (saved) { const userData = JSON.parse(saved); setUser(userData); setIsAuthenticated(true); }
   }, []);
 
-  const handleLogin = (userData) => {
-    setUser(userData);
-    setIsAuthenticated(true);
-  };
+  const handleLogin = (userData) => { setUser(userData); setIsAuthenticated(true); };
+  const handleLogout = () => { localStorage.removeItem('nigersec_institution'); setUser(null); setIsAuthenticated(false); };
 
-  const handleLogout = () => {
-    localStorage.removeItem('nigersec_institution');
-    setUser(null);
-    setIsAuthenticated(false);
-  };
-
-  if (!isAuthenticated) {
-    return <InstitutionalLogin onLogin={handleLogin} />;
-  }
-
+  if (!isAuthenticated) return <InstitutionalLogin onLogin={handleLogin} />;
   return <InstitutionDashboard user={user} onLogout={handleLogout} />;
 }

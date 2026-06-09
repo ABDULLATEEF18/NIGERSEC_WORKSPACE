@@ -1,6 +1,47 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
- 
+
+
+// ── API CONFIG ────────────────────────────────────────────────────────────────
+// Set VITE_API_URL in your .env file. Falls back to local dev server.
+const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+
+// ── REAL API CALL: breach check ───────────────────────────────────────────────
+async function checkBreach(type, rawValue) {
+  const normalized = type === 'email'
+    ? rawValue.trim().toLowerCase()
+    : rawValue.replace(/\s/g, '').replace(/^0/, '234');
+  const hash = await sha1Hex(normalized);
+  const hashPrefix = hash.slice(0, 5);
+
+  const res = await fetch(`${API_URL}/v1/check`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identifier_type: type, hash_prefix: hashPrefix }),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  const data = await res.json();
+  return { breached: data.breached, breaches: data.breaches || [], hash };
+}
+
+// ── REAL API CALL: notify me signup ──────────────────────────────────────────
+async function subscribeNotify(email) {
+  const res = await fetch(`${API_URL}/v1/notify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+// ── REAL API CALL: platform stats ────────────────────────────────────────────
+async function fetchStats() {
+  const res = await fetch(`${API_URL}/v1/stats`);
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
 // ---------- BREACH DATASETS ----------
 // ── EXPANDED BREACH POOLS ────────────────────────────────────────────
 const BREACH_POOLS = {
@@ -70,19 +111,32 @@ async function sha1Hex(str) {
 }
  
 async function simulateCheck(type, rawValue) {
+  // ── Try real ML backend first ────────────────────────────────────────────
+  try {
+    const apiResult = await checkBreach(type, rawValue);
+    // Tag results so the UI knows these are real ML results
+    if (apiResult.breaches) {
+      apiResult.breaches = apiResult.breaches.map(b => ({ ...b, _mlResult: true }));
+    }
+    return apiResult;
+  } catch (error) {
+    console.warn('ML backend unavailable, falling back to local demo data:', error);
+  }
+
+  // ── Local demo fallback (keeps working without backend) ──────────────────
   await new Promise(r => setTimeout(r, 900 + Math.random() * 400));
   const normalized = type === 'email' ? rawValue.trim().toLowerCase() : rawValue.replace(/\s/g, '');
   const hash = await sha1Hex(normalized);
   const seed = parseInt(hash.slice(0, 6), 16);
   const pool = BREACH_POOLS[type];
   let count = (seed % 3) + (type === 'nin' || type === 'bvn' ? 1 : 0);
-  if (count === 0) return { breached: false, breaches: [], hash };
+  if (count === 0) return { breached: false, breaches: [], hash, _demo: true };
   let selected = [];
   for (let i = 0; i < Math.min(count, pool.length); i++) {
     let b = pool[(seed + i * 5) % pool.length];
-    if (!selected.find(x => x.name === b.name)) selected.push(b);
+    if (!selected.find(x => x.name === b.name)) selected.push({ ...b, _demo: true });
   }
-  return { breached: true, breaches: selected, hash };
+  return { breached: true, breaches: selected, hash, _demo: true };
 }
  
 const typeMap = {
@@ -352,6 +406,57 @@ const CSS = `
     color: #C8E8C0; line-height: 1.7; word-break: break-all;
   }
   .ns-code-cmd { color: #EAB308; }
+
+  /* ML CONFIDENCE BAR */
+  .ns-ml-wrap { margin-top: 0.7rem; }
+  .ns-ml-label { display: flex; justify-content: space-between; font-size: 0.68rem; color: #5A7A55; margin-bottom: 4px; }
+  .ns-ml-track { background: #1F3A24; border-radius: 4px; height: 5px; overflow: hidden; }
+  .ns-ml-fill  { height: 5px; border-radius: 4px; transition: width 0.9s ease; }
+
+  /* SOURCE BADGE */
+  .ns-source-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 0.65rem; font-weight: 700; padding: 2px 8px;
+    border-radius: 2rem; margin-left: 8px;
+    letter-spacing: 0.04em;
+  }
+  .ns-source-live { background: rgba(16,185,129,0.15); color: #34D399; border: 1px solid rgba(16,185,129,0.3); }
+  .ns-source-demo { background: rgba(234,179,8,0.1);   color: #EAB308; border: 1px solid rgba(234,179,8,0.25); }
+
+  /* LIVE STATS */
+  .ns-stat-live-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #10B981; display: inline-block;
+    margin-right: 4px; animation: nsPulse 2s infinite;
+  }
+  .ns-stat-live-label { font-size: 0.6rem; color: #10B981; font-weight: 700; letter-spacing: 0.06em; margin-top: 2px; }
+
+  /* FRAUD SCORE DEMO */
+  .ns-score-demo { background: rgba(13,31,18,0.9); border: 1px solid #1F3A24; border-radius: 1rem; padding: 1.5rem; }
+  .ns-score-demo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; margin-bottom: 1rem; }
+  @media (max-width: 600px) { .ns-score-demo-grid { grid-template-columns: 1fr; } }
+  .ns-demo-field label { display: block; font-size: 0.7rem; font-weight: 600; color: #5A7A55; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+  .ns-demo-field input[type="number"] {
+    width: 100%; background: #07120A; border: 1px solid #2A4A30;
+    border-radius: 0.5rem; padding: 7px 10px; color: #C8E8C0;
+    font-size: 0.85rem; outline: none; font-family: inherit;
+  }
+  .ns-demo-field input:focus { border-color: #EAB308; }
+  .ns-toggle-row { display: flex; align-items: center; gap: 8px; margin: 5px 0; cursor: pointer; }
+  .ns-toggle { width: 34px; height: 18px; border-radius: 9px; position: relative; transition: background 0.2s; flex-shrink: 0; }
+  .ns-toggle-knob { position: absolute; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: left 0.2s; }
+  .ns-toggle-lbl { font-size: 0.8rem; color: #8FBB85; }
+  .ns-score-result { background: #07120A; border: 1px solid #1F3A24; border-radius: 0.8rem; padding: 1.2rem; margin-top: 1rem; }
+  .ns-score-ring {
+    width: 72px; height: 72px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; flex-shrink: 0;
+  }
+  .ns-score-num { font-family: 'Space Grotesk', sans-serif; font-size: 1.5rem; font-weight: 800; }
+  .ns-score-rec { font-family: 'Space Grotesk', sans-serif; font-size: 1.1rem; font-weight: 800; }
+  .ns-flag-tag { display: inline-block; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 2rem; padding: 2px 9px; font-size: 0.68rem; color: #FCA5A5; margin: 2px; }
+  .ns-spinner { width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.2); border-top-color: #fff; border-radius: 50%; animation: spin 0.6s linear infinite; display: inline-block; vertical-align: middle; }
+  @keyframes spin { to { transform: rotate(360deg); } }
  
   /* ABOUT */
   .ns-about { width: 100%; padding: 3.5rem 2rem; text-align: center; }
@@ -386,6 +491,42 @@ export default function Home() {
   const lastScrollY = useRef(0);
   const navigate = useNavigate();
 
+  // ── Live platform stats ───────────────────────────────────────────────────
+  const [liveStats, setLiveStats] = useState(null);
+  useEffect(() => {
+    fetchStats()
+      .then(data => setLiveStats(data))
+      .catch(() => {}); // silently fall back to hardcoded values if API is down
+  }, []);
+
+  // ── Fraud score demo state ────────────────────────────────────────────────
+  const [demoParams, setDemoParams] = useState({
+    amount: 250000, account_age_days: 3, hour_of_day: 2,
+    velocity_flag: true, bvn_in_breach: true,
+    new_device: true, nibss_flagged: false, channel_web: true,
+  });
+  const [scoreResult, setScoreResult] = useState(null);
+  const [scoring, setScoring] = useState(false);
+  const [scoreError, setScoreError] = useState('');
+
+  const runFraudScore = async () => {
+    setScoring(true); setScoreError(''); setScoreResult(null);
+    try {
+      const res = await fetch(`${API_URL}/v1/score`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(demoParams),
+      });
+      if (!res.ok) throw new Error(`API ${res.status}`);
+      setScoreResult(await res.json());
+    } catch (e) {
+      setScoreError(e.message.includes('fetch') ? 'Backend offline — start your local server or deploy to Cloud Run.' : e.message);
+    } finally {
+      setScoring(false);
+    }
+  };
+  const setDemoField = (k, v) => { setDemoParams(p => ({ ...p, [k]: v })); setScoreResult(null); };
+
   // Scroll listener to hide/show nav
   useEffect(() => {
     const handleScroll = () => {
@@ -419,10 +560,16 @@ export default function Home() {
     }
   };
  
-  const handleNotify = () => {
+  const handleNotify = async () => {
     if (!notifyEmail.includes('@')) { alert('Valid email required'); return; }
-    setNotifyMsg('✓ Verification link sent! (demo)');
-    setTimeout(() => setNotifyMsg(''), 3000);
+    try {
+      await subscribeNotify(notifyEmail);
+      setNotifyMsg('✓ You\'re on the list! We\'ll alert you when your data appears.');
+    } catch {
+      // API not yet deployed — still acknowledge in demo
+      setNotifyMsg('✓ Verification link sent! (demo mode — deploy backend to go live)');
+    }
+    setTimeout(() => setNotifyMsg(''), 4000);
     setNotifyEmail('');
   };
  
@@ -434,44 +581,75 @@ export default function Home() {
  
   const renderResult = () => {
     if (!result) return null;
+    const isLive = !result._demo;
+
     if (!result.breached) return (
       <div className="ns-result-ok">
         <div style={{ fontSize: '2.2rem' }}>✅</div>
-        <h3>No breaches found</h3>
+        <h3>No breaches found
+          <span className={`ns-source-badge ${isLive ? 'ns-source-live' : 'ns-source-demo'}`}>
+            {isLive ? '● ML checked' : '○ Demo data'}
+          </span>
+        </h3>
         <p>Your {currentType.toUpperCase()} was not found in any known breach. Stay safe.</p>
         <div className="ns-hash-pill">ZK hash: {result.hash.slice(0, 18)}…</div>
       </div>
     );
- 
+
     const actionPlan = currentType === 'bvn' ? '📞 Call your bank & request BVN fraud flag'
       : currentType === 'nin' ? '🏛 Report to NIMC immediately'
       : currentType === 'phone' ? '📱 Enable SIM swap protection'
       : '🔐 Change passwords & enable 2FA';
- 
+
+    // Severity colour map
+    const sevColor = { critical: '#EF4444', high: '#F97316', medium: '#EAB308', low: '#10B981' };
+
     return (
       <div className="ns-result-found">
         <div className="ns-found-header">
           <span style={{ fontSize: '2rem' }}>⚠️</span>
           <div>
-            <div className="ns-found-title">Found in {result.breaches.length} breach{result.breaches.length > 1 ? 'es' : ''}!</div>
+            <div className="ns-found-title">
+              Found in {result.breaches.length} breach{result.breaches.length > 1 ? 'es' : ''}!
+              <span className={`ns-source-badge ${isLive ? 'ns-source-live' : 'ns-source-demo'}`}>
+                {isLive ? '● ML result' : '○ Demo data'}
+              </span>
+            </div>
             <div style={{ fontSize: '0.85rem', color: '#8FBB85' }}>Take action immediately</div>
           </div>
         </div>
-        {result.breaches.map((b, idx) => (
-          <div key={idx} className="ns-breach-card">
-            <div className="ns-breach-row">
-              <div>
-                <div className="ns-breach-name">{b.name}</div>
-                <div className="ns-breach-meta">{b.records} records · {b.date}</div>
+        {result.breaches.map((b, idx) => {
+          const color = sevColor[b.sev] || '#EF4444';
+          return (
+            <div key={idx} className="ns-breach-card">
+              <div className="ns-breach-row">
+                <div>
+                  <div className="ns-breach-name">{b.name}</div>
+                  <div className="ns-breach-meta">{b.records} records · {b.date}</div>
+                </div>
+                <span className="ns-critical-badge" style={{ background: color }}>
+                  {b.sev ? b.sev.toUpperCase() : 'CRITICAL'}
+                </span>
               </div>
-              <span className="ns-critical-badge">CRITICAL</span>
+              <div style={{ marginTop: '0.6rem', fontSize: '0.82rem', color: '#EAB308' }}>
+                Compromised data:&nbsp;
+                {b.data?.map(d => <span key={d} className="ns-data-tag">{d}</span>)}
+              </div>
+              {/* ML confidence bar — only shown for real API results */}
+              {b.ml_confidence && (
+                <div className="ns-ml-wrap">
+                  <div className="ns-ml-label">
+                    <span>ML match confidence</span>
+                    <span style={{ color }}>{(b.ml_confidence * 100).toFixed(0)}%</span>
+                  </div>
+                  <div className="ns-ml-track">
+                    <div className="ns-ml-fill" style={{ width: `${b.ml_confidence * 100}%`, background: color }} />
+                  </div>
+                </div>
+              )}
             </div>
-            <div style={{ marginTop: '0.6rem', fontSize: '0.82rem', color: '#EAB308' }}>
-              Compromised data:&nbsp;
-              {b.data.map(d => <span key={d} className="ns-data-tag">{d}</span>)}
-            </div>
-          </div>
-        ))}
+          );
+        })}
         <div className="ns-action-box">
           <strong>⚡ Recommended action:</strong> {actionPlan}<br />
           ✔ Enable 2FA · Monitor accounts · Report to NDPC
@@ -570,13 +748,13 @@ export default function Home() {
         {/* ── STATS BAND ──────────────────────────────────────────── */}
         <div className="ns-stats-band">
           {[
-            ['₦122.78B', 'reported losses 2021–2025'],
-            ['67,518',   'fraud cases (2025)'],
-            ['119K+',    'breaches Q1 2025'],
-            ['4,000+',   'cyberattacks / week'],
-          ].map(([num, label]) => (
+            { key: 'losses',    fallback: '₦122.78B', label: 'reported losses 2021–2025',   liveKey: null },
+            { key: 'fraud',     fallback: '67,518',   label: 'fraud cases (2025)',            liveKey: null },
+            { key: 'breaches',  fallback: '119K+',    label: 'breaches Q1 2025',             liveKey: null },
+            { key: 'attacks',   fallback: '4,000+',   label: 'cyberattacks / week',           liveKey: null },
+          ].map(({ fallback, label }) => (
             <div key={label} className="ns-stat-card">
-              <div className="ns-stat-num">{num}</div>
+              <div className="ns-stat-num">{fallback}</div>
               <div className="ns-stat-label">{label}</div>
             </div>
           ))}
@@ -647,22 +825,117 @@ export default function Home() {
         <section id="api-section" className="ns-section">
           <div className="ns-api-grid">
             <div>
-              <p className="ns-api-label">DEVELOPER API</p>
+              <p className="ns-api-label">DEVELOPER API · LIVE DEMO</p>
               <h2 className="ns-api-h2">Fraud detection<br />in 200ms</h2>
               <p style={{ color: '#8FBB85', lineHeight: 1.6 }}>
-                Risk scoring endpoint for Nigerian fintechs. Rule engine + ML ready.
+                Adjust parameters below and run the real XGBoost ML model live.
+                Plug the same endpoint into any Nigerian fintech transaction flow.
               </p>
               <p className="ns-api-pricing">₦50 / 1k calls · ₦30 business tier</p>
               <button className="ns-api-btn"
-                onClick={() => alert('API access — developer portal')}>
+                onClick={() => alert('Developer portal coming soon — join the waitlist via Notify Me')}>
                 Get API Keys →
               </button>
             </div>
-            <div className="ns-code-block">
-              <span className="ns-code-cmd">$ curl -X POST https://api.nigersec.ng/score \</span><br />
-              &nbsp;&nbsp;-H "Authorization: Bearer YOUR_KEY" \<br />
-              &nbsp;&nbsp;-d '{`{"amount":250000,"receiver_bvn":"22334455667","account_age_days":3}`}'<br /><br />
-              → {`{"risk_score":87,"recommendation":"BLOCK"}`}
+
+            {/* Live fraud demo */}
+            <div className="ns-score-demo">
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#EAB308', letterSpacing: '0.07em', marginBottom: '0.8rem' }}>
+                ⚡ LIVE ML FRAUD SCORER
+              </div>
+              <div className="ns-score-demo-grid">
+                <div className="ns-demo-field">
+                  <label>Amount (₦)</label>
+                  <input type="number" min="0" step="1000" 
+                    value={demoParams.amount}
+                    onChange={e => {
+                      let val = e.target.value === '' ? 0 : parseFloat(e.target.value);
+                      if (isNaN(val)) val = 0;
+                      setDemoField('amount', val);
+                    }} />
+                </div>
+               <div className="ns-demo-field">
+                <label>Account age (days)</label>
+                <input type="number" min="0" step="1" 
+                  value={demoParams.account_age_days}
+                  onChange={e => {
+                    let val = e.target.value === '' ? 0 : parseInt(e.target.value, 10);
+                    if (isNaN(val)) val = 0;
+                    setDemoField('account_age_days', val);
+                  }} />
+              </div>
+                <div className="ns-demo-field">
+                <label>Hour of day (0–23)</label>
+                <input type="number" min="0" max="23" step="1"
+                  value={demoParams.hour_of_day}
+                  onChange={e => {
+                    let val = e.target.value === '' ? 0 : parseInt(e.target.value, 10);
+                    if (isNaN(val)) val = 0;
+                    val = Math.min(23, Math.max(0, val));
+                    setDemoField('hour_of_day', val);
+                  }} />
+              </div>
+              </div>
+
+              {/* Risk signal toggles */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1rem', marginBottom: '1rem' }}>
+                {[
+                  ['velocity_flag',  'High velocity'],
+                  ['bvn_in_breach',  'BVN in breach DB'],
+                  ['new_device',     'New device'],
+                  ['nibss_flagged',  'NIBSS flagged'],
+                  ['channel_web',    'Web channel'],
+                ].map(([k, lbl]) => (
+                  <div key={k} className="ns-toggle-row" onClick={() => setDemoField(k, !demoParams[k])}>
+                    <div className="ns-toggle" style={{ background: demoParams[k] ? '#10B981' : '#1F3A24' }}>
+                      <div className="ns-toggle-knob" style={{ left: demoParams[k] ? '18px' : '2px' }} />
+                    </div>
+                    <span className="ns-toggle-lbl">{lbl}</span>
+                  </div>
+                ))}
+              </div>
+
+              <button className="ns-check-btn" style={{ width: '100%' }}
+                onClick={runFraudScore} disabled={scoring}>
+                {scoring ? <><span className="ns-spinner" /> Scoring…</> : '⚡ Run ML Score'}
+              </button>
+
+              {scoreError && (
+                <div style={{ marginTop: 8, padding: '8px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, fontSize: 12, color: '#FCA5A5' }}>
+                  ⚠️ {scoreError}
+                </div>
+              )}
+
+              {scoreResult && (() => {
+                const s = scoreResult.risk_score;
+                const col = s >= 75 ? '#EF4444' : s >= 55 ? '#F97316' : s >= 35 ? '#EAB308' : '#10B981';
+                const recCol = { BLOCK: '#EF4444', REVIEW: '#EAB308', ALLOW: '#10B981' };
+                return (
+                  <div className="ns-score-result">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '0.8rem' }}>
+                      <div className="ns-score-ring" style={{ background: `${col}18`, border: `3px solid ${col}` }}>
+                        <div className="ns-score-num" style={{ color: col }}>{s}</div>
+                        <div style={{ fontSize: '0.6rem', color: '#5A7A55' }}>/100</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.72rem', color: '#5A7A55', marginBottom: 3 }}>Risk · {scoreResult.risk_level}</div>
+                        <div className="ns-score-rec" style={{ color: recCol[scoreResult.recommendation] || '#fff' }}>
+                          {scoreResult.recommendation === 'BLOCK' ? '🚫' : scoreResult.recommendation === 'REVIEW' ? '⚠️' : '✅'} {scoreResult.recommendation}
+                        </div>
+                        <div style={{ fontSize: '0.65rem', color: '#3B7040', marginTop: 3, fontFamily: 'monospace' }}>
+                          {scoreResult.model_version} · p={scoreResult.ml_probability?.toFixed(3)}
+                        </div>
+                      </div>
+                    </div>
+                    {scoreResult.flags?.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: '0.65rem', color: '#5A7A55', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>Active flags</div>
+                        <div>{scoreResult.flags.map((f, i) => <span key={i} className="ns-flag-tag">⚑ {f}</span>)}</div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           </div>
         </section>

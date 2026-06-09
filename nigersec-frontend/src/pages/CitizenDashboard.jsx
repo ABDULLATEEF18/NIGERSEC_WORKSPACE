@@ -1,7 +1,73 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-// ── MOCK DATA ─────────────────────────────────────────────────────────────────
+// ── API CONFIG ────────────────────────────────────────────────────────────────
+const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+
+// ── SHA-256 (zero-knowledge hashing, runs in browser) ─────────────────────────
+async function sha256Hex(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// ── API: fetch citizen alerts ─────────────────────────────────────────────────
+async function apiFetchAlerts(userId) {
+  const res = await fetch(`${API_URL}/v1/citizen/alerts?user_id=${encodeURIComponent(userId)}`);
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+// ── API: fetch check history ──────────────────────────────────────────────────
+async function apiFetchHistory(userId) {
+  const res = await fetch(`${API_URL}/v1/citizen/history?user_id=${encodeURIComponent(userId)}`);
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+// ── API: run a new breach check ───────────────────────────────────────────────
+async function apiRunCheck(type, value) {
+  const normalized = type === 'email'
+    ? value.trim().toLowerCase()
+    : value.replace(/\s/g, '').replace(/^0/, '234');
+  const hash = await sha256Hex(normalized);
+  const res = await fetch(`${API_URL}/v1/check`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identifier_type: type, hash_prefix: hash.slice(0, 5) }),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  const data = await res.json();
+  return { ...data, hash, timestamp: new Date().toISOString() };
+}
+
+// ── API: get AI advisor response (Gemini API) ────────────────────────────────
+// Get your free key at: https://aistudio.google.com/app/apikey
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
+
+async function apiAskAdvisor(question, context) {
+  if (!GEMINI_API_KEY) {
+    return 'Add your Gemini API key as VITE_GEMINI_API_KEY in your .env file. Get it free at aistudio.google.com.';
+  }
+  const systemPrompt = `You are NigerSec's AI security advisor helping Nigerian citizens understand data breaches. Be direct, practical, and specific to Nigeria — reference NIMC, BVN, NIN, NIBSS, NDPA 2023 where relevant. Keep responses under 150 words. User context: ${JSON.stringify(context)}`;
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: 'user', parts: [{ text: question }] }],
+        generationConfig: { maxOutputTokens: 300, temperature: 0.7 },
+      }),
+    }
+  );
+  if (!res.ok) throw new Error(`Gemini API ${res.status}`);
+  const data = await res.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || 'Unable to get advice right now.';
+}
+
+
+// ── MOCK DATA (fallbacks when API is offline) ─────────────────────────────────
 const MONITORED_ITEMS = [
   { type: 'BVN',    status: 'Active', icon: '🏦', detail: 'Checked against known breach databases and leak sources.' },
   { type: 'NIN',    status: 'Active', icon: '🪪', detail: 'Monitored for exposure in public breach records and dumps.' },
@@ -487,20 +553,130 @@ function CitizenLogin({ onLogin }) {
   );
 }
 
+// ── AI ADVISOR WIDGET ─────────────────────────────────────────────────────────
+function AIAdvisor({ context }) {
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useState([
+    { role: 'assistant', text: 'Hi! I am your NigerSec AI security advisor. Ask me anything about protecting your data. BVN, NIN, breach steps, NDPA rights, and more.' }
+]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const bottomRef = React.useRef(null);
+
+  useEffect(() => {
+    if (open) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, open]);
+
+  const send = async () => {
+    if (!input.trim() || loading) return;
+    const question = input.trim();
+    setInput('');
+    setMessages(m => [...m, { role: 'user', text: question }]);
+    setLoading(true);
+    try {
+      const reply = await apiAskAdvisor(question, context);
+      setMessages(m => [...m, { role: 'assistant', text: reply }]);
+    } catch {
+      setMessages(m => [...m, { role: 'assistant', text: 'Backend offline. Deploy your API to enable AI advice.' }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!open) return (
+    <button
+      onClick={() => setOpen(true)}
+      style={{
+        position: 'fixed', bottom: '1.5rem', right: '1.5rem', zIndex: 200,
+        background: 'linear-gradient(135deg, var(--blue), #1D4ED8)',
+        border: 'none', borderRadius: '50px', padding: '12px 20px',
+        color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer',
+        boxShadow: '0 4px 20px rgba(37,99,235,0.4)',
+        display: 'flex', alignItems: 'center', gap: 8,
+        fontFamily: 'var(--body)',
+      }}>
+      🤖 AI Advisor
+    </button>
+  );
+
+  return (
+    <div style={{
+      position: 'fixed', bottom: '1.5rem', right: '1.5rem', zIndex: 200,
+      width: 340, background: '#fff', borderRadius: 16,
+      boxShadow: '0 8px 40px rgba(15,23,42,0.18)', border: '1px solid var(--border)',
+      display: 'flex', flexDirection: 'column', overflow: 'hidden',
+    }}>
+      <div style={{ background: 'linear-gradient(135deg, var(--blue), #1D4ED8)', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ color: '#fff', fontWeight: 700, fontSize: 13 }}>🤖 NigerSec AI Advisor</div>
+        <button onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontSize: 16 }}>✕</button>
+      </div>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '12px', maxHeight: 280, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {messages.map((m, i) => (
+          <div key={i} style={{
+            alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
+            background: m.role === 'user' ? 'var(--blue2)' : 'var(--bg)',
+            color: m.role === 'user' ? 'var(--blue)' : 'var(--text)',
+            padding: '8px 12px', borderRadius: 10, fontSize: 12, lineHeight: 1.6,
+            maxWidth: '85%', border: '1px solid var(--border)',
+          }}>{m.text}</div>
+        ))}
+        {loading && (
+          <div style={{ alignSelf: 'flex-start', background: 'var(--bg)', padding: '8px 12px', borderRadius: 10, fontSize: 12, color: 'var(--muted)', border: '1px solid var(--border)' }}>
+            Thinking…
+          </div>
+        )}
+        <div ref={bottomRef} />
+      </div>
+      <div style={{ padding: '8px 12px', borderTop: '1px solid var(--border)', display: 'flex', gap: 6 }}>
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && send()}
+          placeholder="Ask about your breach…"
+          style={{ flex: 1, background: 'var(--bg)', border: '1px solid var(--border2)', borderRadius: 8, padding: '8px 10px', fontSize: 12, outline: 'none', color: 'var(--text)', fontFamily: 'var(--body)' }}
+        />
+        <button onClick={send} disabled={loading || !input.trim()}
+          style={{ background: 'var(--blue)', border: 'none', borderRadius: 8, padding: '8px 12px', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', opacity: loading || !input.trim() ? 0.5 : 1 }}>
+          Send
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── PANEL: DASHBOARD ──────────────────────────────────────────────────────────
-function PanelDashboard({ setPanel }) {
+function PanelDashboard({ setPanel, userId }) {
+  const [summary, setSummary] = useState(null);
+
+  useEffect(() => {
+    // Try to fetch a real risk summary; fall back to safe defaults
+    fetch(`${API_URL}/v1/citizen/summary?user_id=${encodeURIComponent(userId || 'demo')}`)
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => setSummary(data))
+      .catch(() => setSummary({ active_alerts: 0, last_check: '2h ago', risk_level: 'SAFE', breaches_total: 0 }));
+  }, [userId]);
+
+  const isBreached = summary?.active_alerts > 0;
+  const advisorContext = { risk_level: summary?.risk_level, active_alerts: summary?.active_alerts };
+
   return (
     <div>
       <div className="cd-hero">
         <div className="cd-hero-top">
           <div>
             <div style={{ marginBottom: 8 }}>
-              <span className="cd-badge cd-badge-SAFE">✓ Safe today</span>
+              <span className={`cd-badge cd-badge-${isBreached ? 'HIGH' : 'SAFE'}`}>
+                {isBreached ? '⚠ Breach detected' : '✓ Safe today'}
+              </span>
             </div>
-            <div className="cd-hero-title">No breach match found in latest check.</div>
+            <div className="cd-hero-title">
+              {isBreached
+                ? `${summary.active_alerts} active breach alert${summary.active_alerts !== 1 ? 's' : ''} detected.`
+                : 'No breach match found in latest check.'}
+            </div>
             <div className="cd-hero-sub">
-              Your BVN, NIN, phone number, and email are being checked against known Nigerian
-              breach databases and monitored dark web sources every 6 hours.
+              Your BVN, NIN, phone number, and email are checked against Nigerian
+              breach databases and dark web sources every 6 hours.
             </div>
           </div>
         </div>
@@ -511,14 +687,20 @@ function PanelDashboard({ setPanel }) {
           <button className="cd-btn cd-btn-secondary" onClick={() => setPanel('history')}>
             View History
           </button>
+          {isBreached && (
+            <button className="cd-btn" style={{ background: 'var(--red2)', color: 'var(--red)', border: '1px solid rgba(220,38,38,0.2)' }}
+              onClick={() => setPanel('alerts')}>
+              View alerts →
+            </button>
+          )}
         </div>
       </div>
 
       <div className="cd-kpis">
         <div className="cd-kpi">
           <div className="cd-kpi-label">LAST CHECK</div>
-          <div className="cd-kpi-value">2h ago</div>
-          <div className="cd-kpi-sub">Latest scan completed successfully</div>
+          <div className="cd-kpi-value">{summary?.last_check || '—'}</div>
+          <div className="cd-kpi-sub">Latest scan completed</div>
         </div>
         <div className="cd-kpi">
           <div className="cd-kpi-label">WATCHED ITEMS</div>
@@ -527,8 +709,10 @@ function PanelDashboard({ setPanel }) {
         </div>
         <div className="cd-kpi">
           <div className="cd-kpi-label">ACTIVE ALERTS</div>
-          <div className="cd-kpi-value" style={{ color: 'var(--green)' }}>0</div>
-          <div className="cd-kpi-sub">No new exposure detected</div>
+          <div className="cd-kpi-value" style={{ color: isBreached ? 'var(--red)' : 'var(--green)' }}>
+            {summary?.active_alerts ?? '—'}
+          </div>
+          <div className="cd-kpi-sub">{isBreached ? 'Action required' : 'No new exposure detected'}</div>
         </div>
       </div>
 
@@ -568,20 +752,52 @@ function PanelDashboard({ setPanel }) {
           ))}
         </div>
       </div>
+
+      {/* AI Advisor floating button */}
+      <AIAdvisor context={advisorContext} />
     </div>
   );
 }
 
 // ── PANEL: ALERTS ─────────────────────────────────────────────────────────────
-function PanelAlerts() {
+function PanelAlerts({ userId }) {
+  const [alerts, setAlerts] = useState(null);
+  const [dismissed, setDismissed] = useState(new Set());
+  const [source, setSource] = useState('loading');
+
+  useEffect(() => {
+    apiFetchAlerts(userId || 'demo')
+      .then(data => { setAlerts(data.alerts || []); setSource('live'); })
+      .catch(() => { setAlerts(ALERTS_DATA); setSource('demo'); });
+  }, [userId]);
+
+  const dismiss = (id) => setDismissed(s => new Set([...s, id]));
+  const visible = (alerts || []).filter(a => !dismissed.has(a.id));
+
   return (
     <div>
       <div className="cd-card">
         <div className="cd-card-head">
           <div className="cd-card-title">Alert Feed</div>
-          <span className="cd-card-sub">Plain-language notifications</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span className="cd-card-sub">Plain-language notifications</span>
+            {source === 'live' && (
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#059669', background: '#D1FAE5', padding: '2px 8px', borderRadius: 20 }}>● Live</span>
+            )}
+            {source === 'demo' && (
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#D97706', background: '#FEF3C7', padding: '2px 8px', borderRadius: 20 }}>○ Demo</span>
+            )}
+            {source === 'loading' && (
+              <span style={{ fontSize: 10, color: 'var(--muted)' }}>Loading…</span>
+            )}
+          </div>
         </div>
-        {ALERTS_DATA.map(a => (
+        {source === 'loading' && (
+          <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+            Fetching alerts…
+          </div>
+        )}
+        {visible.map(a => (
           <div key={a.id} className={`cd-alert-item ${a.severity}`}>
             <div className="cd-alert-head">
               <span className="cd-alert-title">{a.title}</span>
@@ -591,18 +807,42 @@ function PanelAlerts() {
               </div>
             </div>
             <div className="cd-alert-body">{a.body}</div>
+            {/* ML confidence if present */}
+            {a.ml_confidence && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 3, display: 'flex', justifyContent: 'space-between' }}>
+                  <span>ML match confidence</span>
+                  <span style={{ color: a.severity === 'HIGH' ? 'var(--red)' : 'var(--amber)' }}>
+                    {(a.ml_confidence * 100).toFixed(0)}%
+                  </span>
+                </div>
+                <div style={{ background: 'var(--border)', borderRadius: 4, height: 4, overflow: 'hidden' }}>
+                  <div style={{
+                    width: `${a.ml_confidence * 100}%`, height: 4, borderRadius: 4,
+                    background: a.severity === 'HIGH' ? 'var(--red)' : 'var(--amber)',
+                    transition: 'width 0.8s ease'
+                  }} />
+                </div>
+              </div>
+            )}
             {a.severity !== 'SAFE' && (
               <div style={{ marginTop: 10, display: 'flex', gap: 6 }}>
                 <button className="cd-btn cd-btn-primary" style={{ padding: '6px 12px', fontSize: 12 }}>
                   Take action
                 </button>
-                <button className="cd-btn cd-btn-secondary" style={{ padding: '6px 12px', fontSize: 12 }}>
+                <button className="cd-btn cd-btn-secondary" style={{ padding: '6px 12px', fontSize: 12 }}
+                  onClick={() => dismiss(a.id)}>
                   Dismiss
                 </button>
               </div>
             )}
           </div>
         ))}
+        {visible.length === 0 && source !== 'loading' && (
+          <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+            ✓ No active alerts. Your identifiers are clear.
+          </div>
+        )}
       </div>
     </div>
   );
@@ -688,40 +928,136 @@ function PanelMonitoring() {
 }
 
 // ── PANEL: HISTORY ────────────────────────────────────────────────────────────
-function PanelHistory() {
+function PanelHistory({ userId, onNewCheck }) {
+  const [history, setHistory] = useState(null);
+  const [source, setSource] = useState('loading');
+  const [checking, setChecking] = useState(false);
+  const [checkType, setCheckType] = useState('email');
+  const [checkValue, setCheckValue] = useState('');
+  const [checkResult, setCheckResult] = useState(null);
+
+  useEffect(() => {
+    apiFetchHistory(userId || 'demo')
+      .then(data => { setHistory(data.history || []); setSource('live'); })
+      .catch(() => { setHistory(HISTORY_DATA); setSource('demo'); });
+  }, [userId]);
+
+  const runNewCheck = async () => {
+    if (!checkValue.trim()) return;
+    setChecking(true); setCheckResult(null);
+    try {
+      const result = await apiRunCheck(checkType, checkValue);
+      const newRow = {
+        date: 'Just now',
+        identifier: checkType.toUpperCase(),
+        outcome: result.breached ? `Found in ${result.breach_count} breach${result.breach_count !== 1 ? 'es' : ''}` : 'No match found',
+        status: result.breached ? (result.breaches?.[0]?.sev === 'critical' ? 'HIGH' : 'MEDIUM') : 'SAFE',
+        hash: result.hash,
+        _live: true,
+      };
+      setHistory(h => [newRow, ...(h || [])]);
+      setCheckResult(result);
+      if (onNewCheck) onNewCheck(result);
+      setCheckValue('');
+      setSource('live');
+    } catch (e) {
+      alert('Check failed: ' + e.message);
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const rows = history || [];
+
   return (
     <div>
+      {/* Quick check widget */}
+      <div className="cd-card" style={{ marginBottom: '1rem' }}>
+        <div className="cd-card-head">
+          <div className="cd-card-title">Run a new check</div>
+          <span className="cd-card-sub">Zero-knowledge · hashed in browser</span>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {['email','phone','nin','bvn'].map(t => (
+            <button key={t}
+              className={`cd-btn ${checkType === t ? 'cd-btn-primary' : 'cd-btn-secondary'}`}
+              style={{ padding: '6px 14px', fontSize: 12 }}
+              onClick={() => setCheckType(t)}>
+              {t.toUpperCase()}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          <input
+            className="cd-field"
+            style={{ flex: 1, background: 'var(--bg)', border: '1px solid var(--border2)', borderRadius: 'var(--radius-sm)', padding: '10px 12px', fontSize: 13, color: 'var(--text)', outline: 'none' }}
+            placeholder={{ email: 'your@email.com', phone: '08012345678', nin: '12345678901', bvn: '12345678901' }[checkType]}
+            value={checkValue}
+            onChange={e => { setCheckValue(e.target.value); setCheckResult(null); }}
+            onKeyDown={e => e.key === 'Enter' && runNewCheck()}
+          />
+          <button className="cd-btn cd-btn-primary" onClick={runNewCheck} disabled={checking || !checkValue.trim()}>
+            {checking ? 'Checking…' : 'Check →'}
+          </button>
+        </div>
+        {checkResult && (
+          <div style={{ marginTop: 10, padding: '10px 14px', borderRadius: 8, fontSize: 12,
+            background: checkResult.breached ? 'var(--red2)' : 'var(--green2)',
+            color: checkResult.breached ? 'var(--red)' : 'var(--green)',
+            border: `1px solid ${checkResult.breached ? 'rgba(220,38,38,0.2)' : 'rgba(5,150,105,0.2)'}` }}>
+            {checkResult.breached
+              ? `⚠ Found in ${checkResult.breach_count} breach${checkResult.breach_count !== 1 ? 'es' : ''}. Take action immediately.`
+              : '✓ No breaches found. Stay vigilant.'}
+            {checkResult.hash && (
+              <div style={{ fontFamily: 'var(--mono)', fontSize: 10, marginTop: 4, opacity: 0.7 }}>
+                ZK hash: {checkResult.hash.slice(0, 16)}…
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* History table */}
       <div className="cd-card">
         <div className="cd-card-head">
           <div className="cd-card-title">Check History</div>
-          <span className="cd-card-sub">Recent scans and outcomes</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span className="cd-card-sub">Recent scans and outcomes</span>
+            {source === 'live' && <span style={{ fontSize: 10, fontWeight: 700, color: '#059669', background: '#D1FAE5', padding: '2px 8px', borderRadius: 20 }}>● Live</span>}
+            {source === 'demo' && <span style={{ fontSize: 10, fontWeight: 700, color: '#D97706', background: '#FEF3C7', padding: '2px 8px', borderRadius: 20 }}>○ Demo</span>}
+          </div>
         </div>
-        <table className="cd-table">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Identifier</th>
-              <th>Outcome</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {HISTORY_DATA.map((row, i) => (
-              <tr key={i}>
-                <td style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--muted)' }}>
-                  {row.date}
-                </td>
-                <td style={{ fontWeight: 500 }}>{row.identifier}</td>
-                <td style={{ color: 'var(--muted)', fontSize: 13 }}>{row.outcome}</td>
-                <td>
-                  <span className={`cd-badge cd-badge-${row.status}`}>
-                    {row.status === 'SAFE' ? '✓ Clear' : row.status === 'HIGH' ? '⚠ High' : '⚠ Medium'}
-                  </span>
-                </td>
+        {source === 'loading' ? (
+          <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>Loading history…</div>
+        ) : (
+          <table className="cd-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Identifier</th>
+                <th>Outcome</th>
+                <th>Status</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((row, i) => (
+                <tr key={i}>
+                  <td style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--muted)' }}>{row.date}</td>
+                  <td style={{ fontWeight: 500 }}>
+                    {row.identifier}
+                    {row._live && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--green)', fontWeight: 700 }}>ML</span>}
+                  </td>
+                  <td style={{ color: 'var(--muted)', fontSize: 13 }}>{row.outcome}</td>
+                  <td>
+                    <span className={`cd-badge cd-badge-${row.status}`}>
+                      {row.status === 'SAFE' ? '✓ Clear' : row.status === 'HIGH' ? '⚠ High' : '⚠ Medium'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );
@@ -801,9 +1137,10 @@ function PanelProfile() {
 }
 
 // ── SIDEBAR NAV ITEMS ─────────────────────────────────────────────────────────
+// badge is now dynamic — passed as prop from main component
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard'  },
-  { id: 'alerts',    label: 'Alerts',    badge: 2 },
+  { id: 'alerts',    label: 'Alerts'     },
   { id: 'monitoring',label: 'Monitoring' },
   { id: 'history',   label: 'History'    },
   { id: 'profile',   label: 'Profile'    },
@@ -847,12 +1184,13 @@ export default function CitizenDashboard() {
   };
 
   const renderPanel = () => {
+    const uid = user?.email || 'demo';
     switch (panel) {
-      case 'alerts':     return <PanelAlerts />;
+      case 'alerts':     return <PanelAlerts userId={uid} />;
       case 'monitoring': return <PanelMonitoring />;
-      case 'history':    return <PanelHistory />;
+      case 'history':    return <PanelHistory userId={uid} />;
       case 'profile':    return <PanelProfile />;
-      default:           return <PanelDashboard setPanel={setPanel} />;
+      default:           return <PanelDashboard setPanel={setPanel} userId={uid} />;
     }
   };
 
