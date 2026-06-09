@@ -1,9 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-<<<<<<< HEAD
-=======
-import { login, logout, getSubscriptions, subscribeMonitoring } from '../api';
->>>>>>> f3818cc (changing the institutional dashboard codes)
 
 // ── API CONFIG ────────────────────────────────────────────────────────────────
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
@@ -649,7 +645,6 @@ function AIAdvisor({ context }) {
 }
 
 // ── PANEL: DASHBOARD ──────────────────────────────────────────────────────────
-<<<<<<< HEAD
 function PanelDashboard({ setPanel, userId }) {
   const [summary, setSummary] = useState(null);
 
@@ -664,10 +659,6 @@ function PanelDashboard({ setPanel, userId }) {
   const isBreached = summary?.active_alerts > 0;
   const advisorContext = { risk_level: summary?.risk_level, active_alerts: summary?.active_alerts };
 
-=======
-function PanelDashboard({ setPanel, subscriptions }) {
-  const activeCount = subscriptions.length;
->>>>>>> f3818cc (changing the institutional dashboard codes)
   return (
     <div>
       <div className="cd-hero">
@@ -684,13 +675,8 @@ function PanelDashboard({ setPanel, subscriptions }) {
                 : 'No breach match found in latest check.'}
             </div>
             <div className="cd-hero-sub">
-<<<<<<< HEAD
               Your BVN, NIN, phone number, and email are checked against Nigerian
               breach databases and dark web sources every 6 hours.
-=======
-              Your BVN, NIN, phone number, and email are being checked against known breach databases
-              and monitored dark web sources every 6 hours.
->>>>>>> f3818cc (changing the institutional dashboard codes)
             </div>
           </div>
         </div>
@@ -723,15 +709,10 @@ function PanelDashboard({ setPanel, subscriptions }) {
         </div>
         <div className="cd-kpi">
           <div className="cd-kpi-label">ACTIVE ALERTS</div>
-<<<<<<< HEAD
           <div className="cd-kpi-value" style={{ color: isBreached ? 'var(--red)' : 'var(--green)' }}>
             {summary?.active_alerts ?? '—'}
           </div>
           <div className="cd-kpi-sub">{isBreached ? 'Action required' : 'No new exposure detected'}</div>
-=======
-          <div className="cd-kpi-value" style={{ color: 'var(--green)' }}>{activeCount > 0 ? '0' : '0'}</div>
-          <div className="cd-kpi-sub">No new exposure detected</div>
->>>>>>> f3818cc (changing the institutional dashboard codes)
         </div>
       </div>
 
@@ -950,7 +931,6 @@ function PanelMonitoring({ subscriptions, isLoading, error, onToggleMonitoring }
 }
 
 // ── PANEL: HISTORY ────────────────────────────────────────────────────────────
-<<<<<<< HEAD
 function PanelHistory({ userId, onNewCheck }) {
   const [history, setHistory] = useState(null);
   const [source, setSource] = useState('loading');
@@ -992,9 +972,6 @@ function PanelHistory({ userId, onNewCheck }) {
 
   const rows = history || [];
 
-=======
-function PanelHistory({ subscriptions }) {
->>>>>>> f3818cc (changing the institutional dashboard codes)
   return (
     <div>
       {/* Quick check widget */}
@@ -1046,7 +1023,6 @@ function PanelHistory({ subscriptions }) {
       {/* History table */}
       <div className="cd-card">
         <div className="cd-card-head">
-<<<<<<< HEAD
           <div className="cd-card-title">Check History</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span className="cd-card-sub">Recent scans and outcomes</span>
@@ -1056,33 +1032,17 @@ function PanelHistory({ subscriptions }) {
         </div>
         {source === 'loading' ? (
           <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>Loading history…</div>
-=======
-          <div className="cd-card-title">Monitoring Subscriptions</div>
-          <span className="cd-card-sub">Your active breach tracking subscriptions</span>
-        </div>
-        {subscriptions.length === 0 ? (
-          <div style={{ padding: '1.5rem', color: 'var(--muted)' }}>
-            No active monitoring subscriptions found. Enable monitoring to track your identifiers in real time.
-          </div>
->>>>>>> f3818cc (changing the institutional dashboard codes)
         ) : (
           <table className="cd-table">
             <thead>
               <tr>
-<<<<<<< HEAD
                 <th>Date</th>
                 <th>Identifier</th>
                 <th>Outcome</th>
-=======
-                <th>Identifier</th>
-                <th>Data type</th>
-                <th>Created</th>
->>>>>>> f3818cc (changing the institutional dashboard codes)
                 <th>Status</th>
               </tr>
             </thead>
             <tbody>
-<<<<<<< HEAD
               {rows.map((row, i) => (
                 <tr key={i}>
                   <td style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--muted)' }}>{row.date}</td>
@@ -1096,14 +1056,6 @@ function PanelHistory({ subscriptions }) {
                       {row.status === 'SAFE' ? '✓ Clear' : row.status === 'HIGH' ? '⚠ High' : '⚠ Medium'}
                     </span>
                   </td>
-=======
-              {subscriptions.map((sub, i) => (
-                <tr key={i}>
-                  <td>{sub.identifier}</td>
-                  <td>{sub.dataType}</td>
-                  <td>{new Date(sub.createdAt || sub.createdDate || Date.now()).toLocaleDateString()}</td>
-                  <td><span className="cd-badge cd-badge-SAFE">Active</span></td>
->>>>>>> f3818cc (changing the institutional dashboard codes)
                 </tr>
               ))}
             </tbody>
@@ -1245,45 +1197,7 @@ export default function CitizenDashboard() {
     setIsAuthenticated(true);
   };
 
-<<<<<<< HEAD
   const handleLogout = () => {
-=======
-  const handleToggleMonitoring = async () => {
-    if (!user?.accessToken) {
-      setMonitoringError('Please log in to manage monitoring.');
-      return;
-    }
-
-    setMonitoringError('');
-    setMonitoringLoading(true);
-
-    try {
-      const payload = {
-        identifier: user.email,
-        dataType: 'EMAIL',
-      };
-      await subscribeMonitoring(user.accessToken, payload);
-      const subs = await getSubscriptions(user.accessToken);
-      setSubscriptions(Array.isArray(subs) ? subs : []);
-      setPanel('monitoring');
-    } catch (err) {
-      setMonitoringError(err.message || 'Unable to enable monitoring.');
-    } finally {
-      setMonitoringLoading(false);
-    }
-  };
-
-  const handleLogout = async () => {
-    const token = user?.accessToken;
-    if (token) {
-      try {
-        await logout(token);
-      } catch (err) {
-        console.warn('Logout request failed:', err);
-      }
-    }
-
->>>>>>> f3818cc (changing the institutional dashboard codes)
     localStorage.removeItem('nigersec_citizen');
     setUser(null);
     setIsAuthenticated(false);
@@ -1293,28 +1207,11 @@ export default function CitizenDashboard() {
   const renderPanel = () => {
     const uid = user?.email || 'demo';
     switch (panel) {
-<<<<<<< HEAD
       case 'alerts':     return <PanelAlerts userId={uid} />;
       case 'monitoring': return <PanelMonitoring />;
       case 'history':    return <PanelHistory userId={uid} />;
       case 'profile':    return <PanelProfile />;
       default:           return <PanelDashboard setPanel={setPanel} userId={uid} />;
-=======
-      case 'alerts':     return <PanelAlerts />;
-      case 'monitoring': return <PanelMonitoring
-                            subscriptions={subscriptions}
-                            isLoading={monitoringLoading}
-                            error={monitoringError}
-                            onToggleMonitoring={handleToggleMonitoring}
-                          />;
-      case 'history':    return <PanelHistory subscriptions={subscriptions} />;
-      case 'profile':    return <PanelProfile />;
-      default:           return <PanelDashboard
-                            setPanel={setPanel}
-                            subscriptions={subscriptions}
-                            onStartMonitoring={handleToggleMonitoring}
-                          />;
->>>>>>> f3818cc (changing the institutional dashboard codes)
     }
   };
 
