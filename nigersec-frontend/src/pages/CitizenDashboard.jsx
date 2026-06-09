@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+<<<<<<< HEAD
+=======
+import { login, logout, getSubscriptions, subscribeMonitoring } from '../api';
+>>>>>>> f3818cc (changing the institutional dashboard codes)
 
 // ── API CONFIG ────────────────────────────────────────────────────────────────
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
@@ -645,6 +649,7 @@ function AIAdvisor({ context }) {
 }
 
 // ── PANEL: DASHBOARD ──────────────────────────────────────────────────────────
+<<<<<<< HEAD
 function PanelDashboard({ setPanel, userId }) {
   const [summary, setSummary] = useState(null);
 
@@ -659,6 +664,10 @@ function PanelDashboard({ setPanel, userId }) {
   const isBreached = summary?.active_alerts > 0;
   const advisorContext = { risk_level: summary?.risk_level, active_alerts: summary?.active_alerts };
 
+=======
+function PanelDashboard({ setPanel, subscriptions }) {
+  const activeCount = subscriptions.length;
+>>>>>>> f3818cc (changing the institutional dashboard codes)
   return (
     <div>
       <div className="cd-hero">
@@ -675,8 +684,13 @@ function PanelDashboard({ setPanel, userId }) {
                 : 'No breach match found in latest check.'}
             </div>
             <div className="cd-hero-sub">
+<<<<<<< HEAD
               Your BVN, NIN, phone number, and email are checked against Nigerian
               breach databases and dark web sources every 6 hours.
+=======
+              Your BVN, NIN, phone number, and email are being checked against known breach databases
+              and monitored dark web sources every 6 hours.
+>>>>>>> f3818cc (changing the institutional dashboard codes)
             </div>
           </div>
         </div>
@@ -704,15 +718,20 @@ function PanelDashboard({ setPanel, userId }) {
         </div>
         <div className="cd-kpi">
           <div className="cd-kpi-label">WATCHED ITEMS</div>
-          <div className="cd-kpi-value">4</div>
+          <div className="cd-kpi-value">{Math.max(activeCount, 4)}</div>
           <div className="cd-kpi-sub">BVN, NIN, Phone, Email</div>
         </div>
         <div className="cd-kpi">
           <div className="cd-kpi-label">ACTIVE ALERTS</div>
+<<<<<<< HEAD
           <div className="cd-kpi-value" style={{ color: isBreached ? 'var(--red)' : 'var(--green)' }}>
             {summary?.active_alerts ?? '—'}
           </div>
           <div className="cd-kpi-sub">{isBreached ? 'Action required' : 'No new exposure detected'}</div>
+=======
+          <div className="cd-kpi-value" style={{ color: 'var(--green)' }}>{activeCount > 0 ? '0' : '0'}</div>
+          <div className="cd-kpi-sub">No new exposure detected</div>
+>>>>>>> f3818cc (changing the institutional dashboard codes)
         </div>
       </div>
 
@@ -849,10 +868,9 @@ function PanelAlerts({ userId }) {
 }
 
 // ── PANEL: MONITORING ─────────────────────────────────────────────────────────
-function PanelMonitoring() {
+function PanelMonitoring({ subscriptions, isLoading, error, onToggleMonitoring }) {
   const [toggles, setToggles] = useState({ sms: true, email: true, push: false });
-  const [subActive, setSubActive] = useState(false);
-
+  const hasSubscription = subscriptions.length > 0;
   const toggle = (key) => setToggles(t => ({ ...t, [key]: !t[key] }));
 
   return (
@@ -874,25 +892,29 @@ function PanelMonitoring() {
         <div className="cd-card">
           <div className="cd-card-head">
             <div className="cd-card-title">Subscription</div>
-            <span className={`cd-badge cd-badge-${subActive ? 'SAFE' : 'GRAY'}`}>
-              {subActive ? 'Active' : 'Inactive'}
+            <span className={`cd-badge cd-badge-${hasSubscription ? 'SAFE' : 'GRAY'}`}>
+              {hasSubscription ? 'Active' : 'Inactive'}
             </span>
           </div>
           <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: '1rem', lineHeight: 1.6 }}>
             Receive alerts by SMS, email, or push notification the moment new exposure is detected for any of your monitored identifiers.
           </p>
+          {error && (
+            <div style={{ marginBottom: 12, color: '#EF4444', fontSize: 12 }}>{error}</div>
+          )}
           <div style={{ display: 'flex', gap: 8 }}>
             <button
-              className={`cd-btn ${subActive ? 'cd-btn-danger' : 'cd-btn-primary'}`}
-              onClick={() => setSubActive(s => !s)}
+              className={`cd-btn ${hasSubscription ? 'cd-btn-danger' : 'cd-btn-primary'}`}
+              onClick={onToggleMonitoring}
+              disabled={isLoading}
             >
-              {subActive ? 'Cancel monitoring' : 'Enable monitoring →'}
+              {hasSubscription ? 'Cancel monitoring' : isLoading ? 'Enabling...' : 'Enable monitoring →'}
             </button>
-            {subActive && (
+            {hasSubscription && (
               <button className="cd-btn cd-btn-secondary">Manage billing</button>
             )}
           </div>
-          {subActive && (
+          {hasSubscription && (
             <div style={{ marginTop: 12, padding: '8px 12px', background: 'var(--green2)', borderRadius: 8, fontSize: 12, color: 'var(--green)' }}>
               ✓ Monitoring is active. Next scan in ~4 hours.
             </div>
@@ -928,6 +950,7 @@ function PanelMonitoring() {
 }
 
 // ── PANEL: HISTORY ────────────────────────────────────────────────────────────
+<<<<<<< HEAD
 function PanelHistory({ userId, onNewCheck }) {
   const [history, setHistory] = useState(null);
   const [source, setSource] = useState('loading');
@@ -969,6 +992,9 @@ function PanelHistory({ userId, onNewCheck }) {
 
   const rows = history || [];
 
+=======
+function PanelHistory({ subscriptions }) {
+>>>>>>> f3818cc (changing the institutional dashboard codes)
   return (
     <div>
       {/* Quick check widget */}
@@ -1020,6 +1046,7 @@ function PanelHistory({ userId, onNewCheck }) {
       {/* History table */}
       <div className="cd-card">
         <div className="cd-card-head">
+<<<<<<< HEAD
           <div className="cd-card-title">Check History</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span className="cd-card-sub">Recent scans and outcomes</span>
@@ -1029,17 +1056,33 @@ function PanelHistory({ userId, onNewCheck }) {
         </div>
         {source === 'loading' ? (
           <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>Loading history…</div>
+=======
+          <div className="cd-card-title">Monitoring Subscriptions</div>
+          <span className="cd-card-sub">Your active breach tracking subscriptions</span>
+        </div>
+        {subscriptions.length === 0 ? (
+          <div style={{ padding: '1.5rem', color: 'var(--muted)' }}>
+            No active monitoring subscriptions found. Enable monitoring to track your identifiers in real time.
+          </div>
+>>>>>>> f3818cc (changing the institutional dashboard codes)
         ) : (
           <table className="cd-table">
             <thead>
               <tr>
+<<<<<<< HEAD
                 <th>Date</th>
                 <th>Identifier</th>
                 <th>Outcome</th>
+=======
+                <th>Identifier</th>
+                <th>Data type</th>
+                <th>Created</th>
+>>>>>>> f3818cc (changing the institutional dashboard codes)
                 <th>Status</th>
               </tr>
             </thead>
             <tbody>
+<<<<<<< HEAD
               {rows.map((row, i) => (
                 <tr key={i}>
                   <td style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--muted)' }}>{row.date}</td>
@@ -1053,6 +1096,14 @@ function PanelHistory({ userId, onNewCheck }) {
                       {row.status === 'SAFE' ? '✓ Clear' : row.status === 'HIGH' ? '⚠ High' : '⚠ Medium'}
                     </span>
                   </td>
+=======
+              {subscriptions.map((sub, i) => (
+                <tr key={i}>
+                  <td>{sub.identifier}</td>
+                  <td>{sub.dataType}</td>
+                  <td>{new Date(sub.createdAt || sub.createdDate || Date.now()).toLocaleDateString()}</td>
+                  <td><span className="cd-badge cd-badge-SAFE">Active</span></td>
+>>>>>>> f3818cc (changing the institutional dashboard codes)
                 </tr>
               ))}
             </tbody>
@@ -1159,6 +1210,9 @@ const PANEL_TITLES = {
 export default function CitizenDashboard() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState(null);
+  const [subscriptions, setSubscriptions] = useState([]);
+  const [monitoringLoading, setMonitoringLoading] = useState(false);
+  const [monitoringError, setMonitoringError] = useState('');
   const [panel, setPanel] = useState('dashboard');
   const navigate = useNavigate();
 
@@ -1171,12 +1225,65 @@ export default function CitizenDashboard() {
     }
   }, []);
 
+  useEffect(() => {
+    if (!user?.accessToken) return;
+
+    async function fetchSubscriptions() {
+      try {
+        const data = await getSubscriptions(user.accessToken);
+        setSubscriptions(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.warn('Failed to load subscriptions', err);
+      }
+    }
+
+    fetchSubscriptions();
+  }, [user]);
+
   const handleLogin = (userData) => {
     setUser(userData);
     setIsAuthenticated(true);
   };
 
+<<<<<<< HEAD
   const handleLogout = () => {
+=======
+  const handleToggleMonitoring = async () => {
+    if (!user?.accessToken) {
+      setMonitoringError('Please log in to manage monitoring.');
+      return;
+    }
+
+    setMonitoringError('');
+    setMonitoringLoading(true);
+
+    try {
+      const payload = {
+        identifier: user.email,
+        dataType: 'EMAIL',
+      };
+      await subscribeMonitoring(user.accessToken, payload);
+      const subs = await getSubscriptions(user.accessToken);
+      setSubscriptions(Array.isArray(subs) ? subs : []);
+      setPanel('monitoring');
+    } catch (err) {
+      setMonitoringError(err.message || 'Unable to enable monitoring.');
+    } finally {
+      setMonitoringLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    const token = user?.accessToken;
+    if (token) {
+      try {
+        await logout(token);
+      } catch (err) {
+        console.warn('Logout request failed:', err);
+      }
+    }
+
+>>>>>>> f3818cc (changing the institutional dashboard codes)
     localStorage.removeItem('nigersec_citizen');
     setUser(null);
     setIsAuthenticated(false);
@@ -1186,11 +1293,28 @@ export default function CitizenDashboard() {
   const renderPanel = () => {
     const uid = user?.email || 'demo';
     switch (panel) {
+<<<<<<< HEAD
       case 'alerts':     return <PanelAlerts userId={uid} />;
       case 'monitoring': return <PanelMonitoring />;
       case 'history':    return <PanelHistory userId={uid} />;
       case 'profile':    return <PanelProfile />;
       default:           return <PanelDashboard setPanel={setPanel} userId={uid} />;
+=======
+      case 'alerts':     return <PanelAlerts />;
+      case 'monitoring': return <PanelMonitoring
+                            subscriptions={subscriptions}
+                            isLoading={monitoringLoading}
+                            error={monitoringError}
+                            onToggleMonitoring={handleToggleMonitoring}
+                          />;
+      case 'history':    return <PanelHistory subscriptions={subscriptions} />;
+      case 'profile':    return <PanelProfile />;
+      default:           return <PanelDashboard
+                            setPanel={setPanel}
+                            subscriptions={subscriptions}
+                            onStartMonitoring={handleToggleMonitoring}
+                          />;
+>>>>>>> f3818cc (changing the institutional dashboard codes)
     }
   };
 

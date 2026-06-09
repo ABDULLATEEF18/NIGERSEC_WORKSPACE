@@ -547,6 +547,7 @@ function InstitutionalLogin({ onLogin }) {
       return;
     }
     setIsLoading(true);
+<<<<<<< HEAD
     setTimeout(() => {
       if (email.includes('@') && password.length > 0) {
         if (rememberMe) {
@@ -559,9 +560,31 @@ function InstitutionalLogin({ onLogin }) {
         onLogin({ email, name: email.split('@')[0] });
       } else {
         setError('Invalid credentials. Please try again.');
+=======
+
+    try {
+      const auth = await login(email, password);
+      const userData = {
+        userId: auth.userId,
+        email: auth.email,
+        name: auth.email.split('@')[0],
+        role: auth.role,
+        accessToken: auth.accessToken,
+        refreshToken: auth.refreshToken,
+        expiresIn: auth.expiresIn,
+      };
+
+      if (rememberMe) {
+        localStorage.setItem('nigersec_institution', JSON.stringify(userData));
+>>>>>>> f3818cc (changing the institutional dashboard codes)
       }
+
+      onLogin(userData);
+    } catch (err) {
+      setError(err.message || 'Invalid credentials. Please try again.');
+    } finally {
       setIsLoading(false);
-    }, 1000);
+    }
   };
 
   return (
@@ -633,6 +656,7 @@ function KPI({ label, value, delta, up, color }) {
   );
 }
 
+<<<<<<< HEAD
 // ── GEMINI THREAT EXPLAINER ──────────────────────────────────────────────────
 function ExplainButton({ alert }) {
   const [explanation, setExplanation] = useState('');
@@ -704,6 +728,34 @@ function PanelAlerts({ orgId }) {
             <div className="id-alert-meta"><span className="id-alert-region">📍 {a.region}</span>{a.match && <span style={{ fontSize: 11, color: '#FCA5A5', padding: '2px 6px', background: 'rgba(239,68,68,0.1)', borderRadius: 4 }}>⚠ Matches your profile</span>}<span className="id-alert-time">{a.time}</span></div>
             <div className="id-alert-actions"><button className="btn-xs btn-xs-red">Block</button><button className="btn-xs btn-xs-ghost">Details</button>{a.match && <button className="btn-xs btn-xs-green">Apply protection</button>}</div>
             <div style={{ marginTop: 6 }}><ExplainButton alert={a} /></div>
+=======
+// ── DASHBOARD PANELS (unchanged from your original) ─────────────────────────
+function PanelAlerts({ alerts = [], statusMessage }) {
+  const displayAlerts = alerts.length > 0 ? alerts : ALERTS;
+
+  return (
+    <div>
+      <div className="id-section-head">
+        <h2><span className="id-refresh-dot" />Live Alert Feed</h2>
+        <span>{statusMessage || 'Auto-refreshes every 5s'}</span>
+      </div>
+      {displayAlerts.map((a, index) => (
+        <div key={a.id ?? index} className={`id-alert-item${a.match ? ' match' : ''}`}>
+          <div><SevPill s={a.severity || 'HIGH'} /></div>
+          <div className="id-alert-body">
+            <div className="id-alert-title">{a.title || a.description || 'Threat detected'}</div>
+            <div className="id-alert-detail">{a.detail || a.indicators || 'No details available.'}</div>
+            <div className="id-alert-meta">
+              {a.region && <span className="id-alert-region">📍 {a.region}</span>}
+              {a.match && <span style={{ fontSize: 11, color: '#FCA5A5', padding: '2px 6px', background: 'rgba(239,68,68,0.1)', borderRadius: 4 }}>⚠ Matches your profile</span>}
+              <span className="id-alert-time">{a.time ?? (a.reportedAt ? new Date(a.reportedAt).toLocaleString() : 'Unknown')}</span>
+            </div>
+            <div className="id-alert-actions">
+              <button className="btn-xs btn-xs-red">Block</button>
+              <button className="btn-xs btn-xs-ghost">Details</button>
+              {a.match && <button className="btn-xs btn-xs-green">Apply protection</button>}
+            </div>
+>>>>>>> f3818cc (changing the institutional dashboard codes)
           </div>
         </div>
       ))}
@@ -847,6 +899,7 @@ function PanelCompliance() {
   );
 }
 
+<<<<<<< HEAD
 function PanelDashboard({ orgId }) {
   const [kpis, setKpis] = useState(null);
   const [source, setSource] = useState('loading');
@@ -860,14 +913,26 @@ function PanelDashboard({ orgId }) {
 
   const k = kpis || { criticalAlerts: 3, threatsBlocked: 127, fraudHotspots: 12, complianceScore: 87 };
   const mapPoints = hotspots || HOTSPOTS;
+=======
+function PanelDashboard({ alerts = [], report, statusMessage }) {
+  const alertCount = alerts.length;
+  const complianceScore = report?.totalBreachesReported != null ? `${Math.max(60, 100 - report.totalBreachesReported)}%` : '87%';
+>>>>>>> f3818cc (changing the institutional dashboard codes)
 
   return (
     <div>
       <div className="id-kpis">
+<<<<<<< HEAD
         <KPI label="Critical alerts" value={String(k.criticalAlerts).padStart(2,'0')} delta="2 in last hour" up={false} color="#EF4444" />
         <KPI label="Threats blocked" value={k.threatsBlocked} delta="34% vs last week" up={true} color="#4AE8A0" />
         <KPI label="Fraud hotspots" value={k.fraudHotspots} delta="1 region downgraded" up={true} color="#EAB308" />
         <KPI label="Compliance score" value={`${k.complianceScore}%`} delta="Report auto-generated" up={true} color="#00A86B" />
+=======
+        <KPI label="Critical alerts" value={String(alertCount || 3).padStart(2, '0')} delta="2 in last hour" up={false} color="#EF4444" />
+        <KPI label="Threats blocked" value="127" delta="34% vs last week" up={true} color="#4AE8A0" />
+        <KPI label="Fraud hotspots" value="12" delta="1 region downgraded" up={true} color="#EAB308" />
+        <KPI label="Compliance score" value={complianceScore} delta="Report auto-generated" up={true} color="#00A86B" />
+>>>>>>> f3818cc (changing the institutional dashboard codes)
       </div>
       <div className="id-grid-60-40">
         <div className="id-card"><div className="id-section-head"><h2><span className="id-refresh-dot" />Critical alerts</h2><span>5s refresh</span></div>{ALERTS.slice(0,3).map(a => (<div key={a.id} className={`id-alert-item${a.match ? ' match' : ''}`}><SevPill s={a.severity} /><div className="id-alert-body"><div className="id-alert-title">{a.title}</div><div className="id-alert-detail">{a.detail}</div><div className="id-alert-meta"><span className="id-alert-region">📍 {a.region}</span><span className="id-alert-time">{a.time}</span></div></div></div>))}</div>
@@ -895,6 +960,7 @@ const NAV_ITEMS = [
 
 function InstitutionDashboard({ user, onLogout }) {
   const [activePanel, setActivePanel] = useState('dashboard');
+<<<<<<< HEAD
   const orgId = user?.email?.split('@')[0] || 'demo';
 
   const renderPanel = () => {
@@ -905,6 +971,43 @@ function InstitutionDashboard({ user, onLogout }) {
       case 'peer':       return <PanelPeer orgId={orgId} />;
       case 'compliance': return <PanelCompliance />;
       default:           return <PanelDashboard orgId={orgId} />;
+=======
+  const [criticalAlerts, setCriticalAlerts] = useState([]);
+  const [complianceReport, setComplianceReport] = useState(null);
+  const [statusMessage, setStatusMessage] = useState('Loading institutional intelligence...');
+
+  useEffect(() => {
+    if (!user?.accessToken || !user?.userId) return;
+
+    async function loadData() {
+      setStatusMessage('Loading critical alerts...');
+      try {
+        const [alerts, report] = await Promise.all([
+          getCriticalAlerts(user.accessToken, user.userId),
+          getComplianceReport(user.accessToken, user.userId, new Date().getFullYear(), new Date().getMonth() + 1),
+        ]);
+
+        setCriticalAlerts(Array.isArray(alerts) ? alerts : []);
+        setComplianceReport(report || null);
+        setStatusMessage('');
+      } catch (err) {
+        console.warn('Institutional data fetch failed:', err);
+        setStatusMessage('Unable to load live data. Showing demo content.');
+      }
+    }
+
+    loadData();
+  }, [user]);
+
+  const renderPanel = () => {
+    switch (activePanel) {
+      case 'alerts':     return <PanelAlerts alerts={criticalAlerts} statusMessage={statusMessage} />;
+      case 'bvn':        return <PanelBVN />;
+      case 'phishing':   return <PanelPhishing />;
+      case 'peer':       return <PanelPeer />;
+      case 'compliance': return <PanelCompliance report={complianceReport} />;
+      default:           return <PanelDashboard alerts={criticalAlerts} report={complianceReport} statusMessage={statusMessage} />;
+>>>>>>> f3818cc (changing the institutional dashboard codes)
     }
   };
 
@@ -913,8 +1016,33 @@ function InstitutionDashboard({ user, onLogout }) {
       <style>{CSS}</style>
       <div className="id-wrap">
         <nav className="id-nav">
+<<<<<<< HEAD
           <a href="#" className="id-nav-brand" onClick={(e) => e.preventDefault()}><div className="id-nav-icon">🛡</div>NigerSec · Institution Portal</a>
           <div className="id-nav-right"><span className="id-nav-org">{user?.name || 'Flutterwave'} · Compliance Officer</span><button className="id-nav-alert-btn" aria-label="Alerts">🔔 <span className="id-nav-alert-dot" /></button><button className="id-nav-logout" onClick={onLogout}>← Logout</button></div>
+=======
+          <a href="#" className="id-nav-brand" onClick={(e) => e.preventDefault()}>
+            <div className="id-nav-icon">🛡</div>
+            NigerSec · Institution Portal
+          </a>
+          <div className="id-nav-right">
+            <span className="id-nav-org">{user?.name || 'Flutterwave'} · Compliance Officer</span>
+            <button className="id-nav-alert-btn" aria-label="Alerts">
+              🔔 <span className="id-nav-alert-dot" />
+            </button>
+            <button className="id-nav-logout" onClick={async () => {
+              if (user?.accessToken) {
+                try {
+                  await logout(user.accessToken);
+                } catch (err) {
+                  console.warn('Logout failed:', err);
+                }
+              }
+              onLogout();
+            }}>
+              ← Logout
+            </button>
+          </div>
+>>>>>>> f3818cc (changing the institutional dashboard codes)
         </nav>
         <div className="id-layout">
           <aside className="id-sidebar">
